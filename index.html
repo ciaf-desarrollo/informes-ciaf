@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Informes CIAF</title>
+<meta name="description" content="Informes de tu empresa, por CIAF Consultora Integral">
+<meta name="theme-color" content="#003e6e">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Informes CIAF">
+<style>
+  :root {
+    --ciaf: #003e6e;
+    --fondo: #f3f5f8;
+    --tarjeta: #ffffff;
+    --texto: #16222e;
+    --suave: #637282;
+    --borde: #d9e0e7;
+    --marca: #003e6e;
+    --marca-texto: #ffffff;
+    --error: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #0d1621;
+      --tarjeta: #16212d;
+      --texto: #e8eef4;
+      --suave: #93a3b3;
+      --borde: #2a3744;
+      --marca: #4f9ad8;
+      --marca-texto: #06121e;
+      --error: #f97066;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--fondo);
+    color: var(--texto);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  header {
+    width: 100%;
+    background: var(--ciaf);
+    display: flex; justify-content: center;
+    padding: max(28px, env(safe-area-inset-top)) 16px 28px;
+  }
+  header img { height: 72px; width: auto; display: block; }
+  main { width: 100%; max-width: 380px; padding: 28px 16px 24px; flex: 1; }
+  h1 { font-size: 1.35rem; text-align: center; margin: 0 0 4px; }
+  .sub { text-align: center; color: var(--suave); margin: 0 0 24px; }
+  .tarjeta {
+    background: var(--tarjeta); border: 1px solid var(--borde);
+    border-radius: 16px; padding: 20px;
+  }
+  label.campo { display: block; font-size: .875rem; color: var(--suave); margin-bottom: 6px; }
+  input[type=password] {
+    width: 100%; font-size: 1.2rem; letter-spacing: 2px; text-align: center;
+    padding: 14px; border-radius: 12px; border: 1px solid var(--borde);
+    background: var(--fondo); color: var(--texto);
+  }
+  input:focus { outline: 2px solid var(--marca); outline-offset: 1px; }
+  .recordar { display: flex; gap: 8px; align-items: center; margin: 14px 0 18px; font-size: .9rem; color: var(--suave); }
+  .recordar input { width: 18px; height: 18px; accent-color: var(--marca); }
+  button {
+    width: 100%; font: inherit; font-weight: 600; padding: 14px;
+    border-radius: 12px; border: 0; cursor: pointer;
+    background: var(--marca); color: var(--marca-texto);
+  }
+  button:disabled { opacity: .6; cursor: default; }
+  button.secundario { background: transparent; color: var(--suave); font-weight: 500; margin-top: 10px; }
+  .error { color: var(--error); font-size: .9rem; min-height: 1.3em; margin: 10px 0 0; text-align: center; }
+  .empresa-logo { display: flex; justify-content: center; margin: 4px 0 18px; }
+  .empresa-logo img { max-height: 72px; max-width: 100%; }
+  .instalar { margin-top: 16px; text-align: center; }
+  .instalar button { background: transparent; color: var(--marca); border: 1px solid var(--borde); }
+  .ayuda-ios { font-size: .875rem; color: var(--suave); text-align: center; margin-top: 12px; }
+  footer { color: var(--suave); font-size: .75rem; padding: 12px 16px max(16px, env(safe-area-inset-bottom)); }
+  [hidden] { display: none !important; }
+
+  /* Pantalla de carga: logo CIAF + logo de la empresa */
+  #carga {
+    position: fixed; inset: 0; z-index: 10;
+    background: #ffffff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 28px; padding: 24px 16px;
+    animation: aparecer .25s ease-out;
+  }
+  #carga .logos { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+  #carga .ciaf { height: 84px; width: auto; border-radius: 10px; }
+  #carga .linea { width: 48px; height: 2px; background: #d9e0e7; border-radius: 2px; }
+  #carga .emp { max-height: 96px; max-width: min(300px, 80vw); }
+  #carga .texto { color: #637282; font-size: .95rem; }
+  .ruedita {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid #d9e6f1; border-top-color: #003e6e;
+    animation: girar .9s linear infinite;
+  }
+  @keyframes girar { to { transform: rotate(360deg); } }
+  @keyframes aparecer { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .ruedita { animation-duration: 2.5s; }
+    #carga { animation: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <img src="./logo-ciaf.webp" alt="CIAF Consultora Integral" width="115" height="72">
+</header>
+
+<main>
+  <h1>Informes</h1>
+  <p class="sub" id="subtitulo">Ingresá la clave de tu empresa</p>
+
+  <!-- Ingreso con clave -->
+  <form id="formIngreso" class="tarjeta" autocomplete="off" hidden>
+    <label class="campo" for="clave">Clave</label>
+    <input id="clave" type="password" autocomplete="current-password" required>
+    <label class="recordar"><input id="recordar" type="checkbox" checked> Recordar en este celular</label>
+    <button id="btnEntrar" type="submit">Entrar</button>
+    <p id="error" class="error" role="alert"></p>
+  </form>
+
+  <!-- Clave recordada: entrar con un toque -->
+  <section id="recordada" class="tarjeta" hidden>
+    <div class="empresa-logo"><img id="logoRecordada" alt=""></div>
+    <button id="btnAbrir" type="button">Ver informes</button>
+    <button id="btnSalir" type="button" class="secundario">Salir / cambiar de empresa</button>
+    <p id="error2" class="error" role="alert"></p>
+  </section>
+
+  <!-- Instalar en el celular -->
+  <div class="instalar">
+    <button id="btnInstalar" type="button" hidden>Instalar app en el celular</button>
+    <p id="ayudaIos" class="ayuda-ios" hidden>
+      Para instalarla: tocá <strong>Compartir</strong> y después <strong>Agregar a inicio</strong>.
+    </p>
+  </div>
+</main>
+
+<footer>CIAF Consultora Integral</footer>
+
+<div id="carga" hidden aria-live="polite">
+  <div class="logos">
+    <img class="ciaf" src="./logo-ciaf.webp" alt="CIAF Consultora Integral">
+    <div class="linea" aria-hidden="true"></div>
+    <img class="emp" id="cargaLogo" alt="">
+  </div>
+  <div class="ruedita" aria-hidden="true"></div>
+  <div class="texto" id="cargaTexto">Abriendo informes…</div>
+</div>
+
+<script>
+  var LS_KEY = 'informes_sesion_v1';
+
+  function leerSesion() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { return null; }
+  }
+  function guardarSesion(s) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch (e) {}
+  }
+  function borrarSesion() {
+    try { localStorage.removeItem(LS_KEY); } catch (e) {}
+  }
+  function logoDe(id) { return './logo-' + encodeURIComponent(id) + '.webp'; }
+
+  // Empresas: cada "url" es la Web App (/exec) del Apps Script de esa empresa.
+  // La clave de cada una es el PIN_CORRECTO de su script; acá no se guarda ninguna.
+  // Para sumar una empresa: agregar una línea y su logo en logo-<id>.webp.
+  var EMPRESAS = [
+    { id: 'santaclara', nombre: 'Santa Clara', url: 'https://script.google.com/macros/s/AKfycbxxZaj-Lneu7o6d6KbgZ6Iox2L5AIQkamenFDqbBvWsjnLA_X2tsjmkHPC-SE6u_SbM/exec' },
+    { id: 'puntoi', nombre: 'Punto i', url: 'https://script.google.com/macros/s/AKfycbyzaanac7b9-eaEeHwBbrfPKSWMQc8l_YmeDakshF0Z1Wy8a0c7sQjCLf7E6FirW2ls/exec' },
+    { id: 'ansilta', nombre: 'Ansilta', url: 'https://script.google.com/macros/s/AKfycbwuLu9i1GWMzAZmTmcPcIQWrm6gGxyAH8-R_ireqnmWp3CUakZ54CkoCrfuvW_LUl71/exec' }
+  ];
+
+  // Le pregunta la clave a cada script (en paralelo). El que la acepta devuelve
+  // un pase temporal (6 h) y con ese pase se abre su web sin volver a pedir PIN.
+  // La clave nunca viaja en el link: solo el pase.
+  async function pedirAcceso(emp, clave) {
+    try {
+      var r = await fetch(emp.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ accion: 'acceso', clave: clave })
+      });
+      var d = JSON.parse(await r.text());
+      return d && d.ok && typeof d.acceso === 'string' ? { acceso: d.acceso } : {};
+    } catch (e) {
+      return { error: true };
+    }
+  }
+
+  async function ingresar(clave) {
+    var resp = await Promise.all(EMPRESAS.map(function (emp) { return pedirAcceso(emp, clave); }));
+    for (var i = 0; i < resp.length; i++) {
+      if (resp[i].acceso) {
+        var emp = EMPRESAS[i];
+        return {
+          empresa: { id: emp.id, nombre: emp.nombre },
+          url: emp.url + '?acceso=' + encodeURIComponent(resp[i].acceso)
+        };
+      }
+    }
+    var algunoFallo = resp.some(function (r) { return r.error; });
+    throw new Error(algunoFallo
+      ? 'Clave incorrecta, o algún informe no respondió. Probá de nuevo en un momento.'
+      : 'Clave incorrecta.');
+  }
+
+  // Muestra la pantalla de carga con los dos logos y abre la web de la empresa.
+  function abrir(datos) {
+    var logo = document.getElementById('cargaLogo');
+    logo.src = logoDe(datos.empresa.id);
+    logo.alt = datos.empresa.nombre;
+    document.getElementById('cargaTexto').textContent = 'Abriendo informes de ' + datos.empresa.nombre + '…';
+    document.getElementById('carga').hidden = false;
+    // Un instante para que se vean los logos antes de cambiar de página.
+    setTimeout(function () { location.href = datos.url; }, 700);
+  }
+
+  var form = document.getElementById('formIngreso');
+  var seccionRecordada = document.getElementById('recordada');
+
+  function mostrarRecordada(s) {
+    form.hidden = true;
+    seccionRecordada.hidden = false;
+    document.getElementById('subtitulo').textContent = s.empresa;
+    var img = document.getElementById('logoRecordada');
+    img.src = logoDe(s.id);
+    img.alt = s.empresa;
+  }
+  function mostrarIngreso() {
+    seccionRecordada.hidden = true;
+    form.hidden = false;
+    document.getElementById('subtitulo').textContent = 'Ingresá la clave de tu empresa';
+  }
+
+  form.addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    var btn = document.getElementById('btnEntrar');
+    var err = document.getElementById('error');
+    var clave = document.getElementById('clave').value.trim();
+    if (!clave) return;
+    err.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Verificando…';
+    try {
+      var datos = await ingresar(clave);
+      if (document.getElementById('recordar').checked) {
+        guardarSesion({ clave: clave, empresa: datos.empresa.nombre, id: datos.empresa.id });
+      }
+      abrir(datos);
+    } catch (e) {
+      err.textContent = e.message;
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+    }
+  });
+
+  document.getElementById('btnAbrir').addEventListener('click', async function () {
+    var s = leerSesion();
+    var btn = this;
+    var err = document.getElementById('error2');
+    if (!s) return mostrarIngreso();
+    err.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Verificando…';
+    try {
+      abrir(await ingresar(s.clave));
+    } catch (e) {
+      // Si la clave dejó de valer (cambiaron el PIN), se vuelve a pedir.
+      if (/^Clave incorrecta\.$/.test(e.message)) {
+        borrarSesion();
+        mostrarIngreso();
+        document.getElementById('error').textContent = 'La clave guardada ya no es válida. Ingresala de nuevo.';
+      } else {
+        err.textContent = e.message;
+      }
+      btn.disabled = false;
+      btn.textContent = 'Ver informes';
+    }
+  });
+
+  document.getElementById('btnSalir').addEventListener('click', function () {
+    borrarSesion();
+    document.getElementById('clave').value = '';
+    mostrarIngreso();
+    document.getElementById('clave').focus();
+  });
+
+  // Al volver con "atrás" desde los informes: sacar la pantalla de carga y restaurar botones.
+  window.addEventListener('pageshow', function () {
+    document.getElementById('carga').hidden = true;
+    var b1 = document.getElementById('btnEntrar'); b1.disabled = false; b1.textContent = 'Entrar';
+    var b2 = document.getElementById('btnAbrir'); b2.disabled = false; b2.textContent = 'Ver informes';
+  });
+
+  var sesion = leerSesion();
+  if (sesion && sesion.clave) mostrarRecordada(sesion); else mostrarIngreso();
+
+  // ---- Instalar como app ----
+  var yaInstalada = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  var esIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  var pedidoInstalar = null;
+  if (!yaInstalada) {
+    if (esIos) document.getElementById('ayudaIos').hidden = false;
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      pedidoInstalar = e;
+      document.getElementById('btnInstalar').hidden = false;
+    });
+  }
+  document.getElementById('btnInstalar').addEventListener('click', async function () {
+    if (!pedidoInstalar) return;
+    pedidoInstalar.prompt();
+    await pedidoInstalar.userChoice.catch(function () {});
+    pedidoInstalar = null;
+    this.hidden = true;
+  });
+  window.addEventListener('appinstalled', function () {
+    document.getElementById('btnInstalar').hidden = true;
+  });
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(function () {});
+  }
+</script>
+</body>
+</html>
