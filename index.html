@@ -88,29 +88,90 @@
   footer { color: var(--suave); font-size: .75rem; padding: 12px 16px max(16px, env(safe-area-inset-bottom)); }
   [hidden] { display: none !important; }
 
-  /* Pantalla de carga: logo CIAF + logo de la empresa */
+  /* Pantalla de carga: una tarjeta que gira como una moneda, con CIAF de un
+     lado y la empresa del otro. Mientras se verifica la clave muestra CIAF en
+     las dos caras; cuando ya se sabe la empresa, alterna CIAF ↔ empresa. */
   #carga {
     position: fixed; inset: 0; z-index: 10;
-    background: #ffffff;
+    background: radial-gradient(120% 90% at 50% 35%, #ffffff 0%, #eef3f8 70%, #e3ebf3 100%);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 28px; padding: 24px 16px;
-    animation: aparecer .25s ease-out;
+    gap: 34px; padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+    animation: aparecer .3s ease-out;
   }
-  #carga .logos { display: flex; flex-direction: column; align-items: center; gap: 22px; }
-  #carga .ciaf { height: 84px; width: auto; border-radius: 10px; }
-  #carga .linea { width: 48px; height: 2px; background: #d9e0e7; border-radius: 2px; }
-  #carga .emp { max-height: 96px; max-width: min(300px, 80vw); }
-  #carga .texto { color: #637282; font-size: .95rem; }
-  .ruedita {
-    width: 34px; height: 34px; border-radius: 50%;
-    border: 3px solid #d9e6f1; border-top-color: #003e6e;
-    animation: girar .9s linear infinite;
+  .escena { perspective: 900px; display: flex; flex-direction: column; align-items: center; }
+  .moneda {
+    position: relative;
+    width: min(240px, 70vw); aspect-ratio: 12 / 8;
+    transform-style: preserve-3d;
+    animation: girarSolo 1.8s cubic-bezier(.45, .05, .55, .95) infinite;
   }
-  @keyframes girar { to { transform: rotate(360deg); } }
+  .moneda.con-empresa { animation: voltear 3.2s cubic-bezier(.65, 0, .35, 1) infinite; }
+  .cara {
+    position: absolute; inset: 0;
+    border-radius: 18px;
+    display: flex; align-items: center; justify-content: center;
+    backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    box-shadow: 0 18px 40px -18px rgba(0, 40, 80, .45), 0 2px 6px rgba(0, 40, 80, .12);
+    overflow: hidden;
+  }
+  .cara.frente { background: #003e6e; }
+  .cara.frente img { width: 82%; height: auto; }
+  .cara.dorso { background: #ffffff; transform: rotateY(180deg); border: 1px solid #e3e9ef; }
+  .cara.dorso img { max-width: 80%; max-height: 72%; object-fit: contain; }
+  .cara.dorso.es-ciaf { background: #003e6e; border: 0; }
+  .cara.dorso.es-ciaf img { width: 82%; max-width: none; max-height: none; height: auto; }
+  /* Brillo que cruza la tarjeta */
+  .cara::after {
+    content: ""; position: absolute; inset: -40% auto -40% -60%; width: 40%;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .35), transparent);
+    transform: skewX(-18deg);
+    animation: brillo 3.2s ease-in-out infinite;
+  }
+  .sombra {
+    width: min(170px, 50vw); height: 14px; margin-top: 22px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(0, 40, 80, .28), transparent);
+    animation: sombra 1.8s cubic-bezier(.45, .05, .55, .95) infinite;
+  }
+  .moneda.con-empresa + .sombra { animation-duration: 3.2s; animation-name: sombraVoltear; }
+  #carga .texto { color: #3d5266; font-size: 1rem; font-weight: 500; text-align: center; min-height: 1.5em; }
+  .puntos { display: inline-flex; gap: 5px; margin-left: 6px; vertical-align: middle; }
+  .puntos i { width: 6px; height: 6px; border-radius: 50%; background: #003e6e; opacity: .25; animation: punto 1.2s ease-in-out infinite; }
+  .puntos i:nth-child(2) { animation-delay: .15s; }
+  .puntos i:nth-child(3) { animation-delay: .3s; }
+  #btnVolverCarga {
+    width: auto; padding: 10px 18px; border-radius: 999px;
+    background: transparent; color: #3d5266; border: 1px solid #c9d5e0; font-weight: 500;
+  }
+
+  @keyframes girarSolo {
+    0%   { transform: rotateY(0deg); }
+    100% { transform: rotateY(360deg); }
+  }
+  @keyframes voltear {
+    0%, 30%   { transform: rotateY(0deg); }
+    50%, 80%  { transform: rotateY(180deg); }
+    100%      { transform: rotateY(360deg); }
+  }
+  @keyframes sombra {
+    0%, 100% { transform: scaleX(1); opacity: 1; }
+    25%, 75% { transform: scaleX(.35); opacity: .55; }
+    50%      { transform: scaleX(1); opacity: 1; }
+  }
+  @keyframes sombraVoltear {
+    0%, 30%, 50%, 80%, 100% { transform: scaleX(1); opacity: 1; }
+    40%, 90% { transform: scaleX(.35); opacity: .55; }
+  }
+  @keyframes brillo { 0%, 55% { left: -60%; } 85%, 100% { left: 130%; } }
+  @keyframes punto { 0%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
   @keyframes aparecer { from { opacity: 0; } to { opacity: 1; } }
+
+  /* Sin animaciones si el celular lo pide: los logos se alternan suave */
   @media (prefers-reduced-motion: reduce) {
-    .ruedita { animation-duration: 2.5s; }
-    #carga { animation: none; }
+    #carga, .cara::after, .sombra, .puntos i { animation: none; }
+    .moneda, .moneda.con-empresa { animation: none; }
+    .moneda.con-empresa .frente { animation: fundido 3.2s ease-in-out infinite; }
+    .moneda.con-empresa .dorso { transform: none; animation: fundido 3.2s ease-in-out infinite reverse; }
+    @keyframes fundido { 0%, 40% { opacity: 1; } 50%, 90% { opacity: 0; } 100% { opacity: 1; } }
   }
 </style>
 </head>
@@ -151,14 +212,16 @@
 
 <footer>CIAF Consultora Integral</footer>
 
-<div id="carga" hidden aria-live="polite">
-  <div class="logos">
-    <img class="ciaf" src="./logo-ciaf.webp" alt="CIAF Consultora Integral">
-    <div class="linea" aria-hidden="true"></div>
-    <img class="emp" id="cargaLogo" alt="">
+<div id="carga" hidden>
+  <div class="escena" aria-hidden="true">
+    <div class="moneda" id="moneda">
+      <div class="cara frente"><img src="./logo-ciaf.webp" alt=""></div>
+      <div class="cara dorso es-ciaf" id="cargaDorso"><img id="cargaLogo" src="./logo-ciaf.webp" alt=""></div>
+    </div>
+    <div class="sombra"></div>
   </div>
-  <div class="ruedita" aria-hidden="true"></div>
-  <div class="texto" id="cargaTexto">Abriendo informes…</div>
+  <div class="texto" role="status" aria-live="polite"><span id="cargaTexto">Verificando clave</span><span class="puntos" aria-hidden="true"><i></i><i></i><i></i></span></div>
+  <button id="btnVolverCarga" type="button">← Volver</button>
 </div>
 
 <script>
@@ -175,13 +238,14 @@
   }
   function logoDe(id) { return './logo-' + encodeURIComponent(id) + '.webp'; }
 
-  // Empresas: cada "url" es la Web App (/exec) del Apps Script de esa empresa.
+  // Empresas: cada "url" es una implementación del Apps Script de esa empresa hecha
+  // solo para la app (acceso "Cualquier usuario"); la de siempre no se toca.
   // La clave de cada una es el PIN_CORRECTO de su script; acá no se guarda ninguna.
   // Para sumar una empresa: agregar una línea y su logo en logo-<id>.webp.
   var EMPRESAS = [
-    { id: 'santaclara', nombre: 'Santa Clara', url: 'https://script.google.com/macros/s/AKfycbxxZaj-Lneu7o6d6KbgZ6Iox2L5AIQkamenFDqbBvWsjnLA_X2tsjmkHPC-SE6u_SbM/exec' },
-    { id: 'puntoi', nombre: 'Punto i', url: 'https://script.google.com/macros/s/AKfycbyzaanac7b9-eaEeHwBbrfPKSWMQc8l_YmeDakshF0Z1Wy8a0c7sQjCLf7E6FirW2ls/exec' },
-    { id: 'ansilta', nombre: 'Ansilta', url: 'https://script.google.com/macros/s/AKfycbwuLu9i1GWMzAZmTmcPcIQWrm6gGxyAH8-R_ireqnmWp3CUakZ54CkoCrfuvW_LUl71/exec' }
+    { id: 'santaclara', nombre: 'Santa Clara', url: 'https://script.google.com/macros/s/AKfycbzIFI7EtfJvzA7hGePOPyGqEzCc0goSDEpWFWnAL0A44AnUGG50-Ib8TGxzpU3at2OH/exec' },
+    { id: 'puntoi', nombre: 'Punto i', url: 'https://script.google.com/macros/s/AKfycbxkunOYALynjKJi-QOYPC2zKH-WMS6thJRniP10szwyP0AvN9OXZvAdJ7OnQB5SE9hy/exec' },
+    { id: 'ansilta', nombre: 'Ansilta', url: 'https://script.google.com/macros/s/AKfycbyCnon_IC8QM3eT1bbiScaszlqGwbzTlsO16XAl6V_9sJAD93i3wrxAdaiyA_kNWVabjA/exec' }
   ];
 
   // Le pregunta la clave a cada script (en paralelo). El que la acepta devuelve
@@ -218,15 +282,49 @@
       : 'Clave incorrecta.');
   }
 
-  // Muestra la pantalla de carga con los dos logos y abre la web de la empresa.
-  function abrir(datos) {
+  // ---- Pantalla de carga ----
+  // Se muestra apenas se toca Entrar. Sin empresa: la tarjeta gira con CIAF en
+  // las dos caras. Con empresa: alterna CIAF ↔ empresa hasta que abre la web.
+  var cargaCancelada = false;
+  var temporizadorAbrir = null;
+
+  function mostrarCarga(empresa, texto) {
+    var moneda = document.getElementById('moneda');
+    var dorso = document.getElementById('cargaDorso');
     var logo = document.getElementById('cargaLogo');
-    logo.src = logoDe(datos.empresa.id);
-    logo.alt = datos.empresa.nombre;
-    document.getElementById('cargaTexto').textContent = 'Abriendo informes de ' + datos.empresa.nombre + '…';
+    if (empresa) {
+      logo.src = logoDe(empresa.id);
+      dorso.classList.remove('es-ciaf');
+      moneda.classList.add('con-empresa');
+    } else {
+      logo.src = './logo-ciaf.webp';
+      dorso.classList.add('es-ciaf');
+      moneda.classList.remove('con-empresa');
+    }
+    document.getElementById('cargaTexto').textContent = texto;
     document.getElementById('carga').hidden = false;
-    // Un instante para que se vean los logos antes de cambiar de página.
-    setTimeout(function () { location.href = datos.url; }, 700);
+  }
+  function ocultarCarga() {
+    clearTimeout(temporizadorAbrir);
+    document.getElementById('carga').hidden = true;
+  }
+
+  // Abre la web de la empresa, dejando ver un giro completo de los logos.
+  function abrir(datos) {
+    if (cargaCancelada) return;
+    mostrarCarga(datos.empresa, 'Abriendo informes de ' + datos.empresa.nombre);
+    temporizadorAbrir = setTimeout(function () { location.href = datos.url; }, 1600);
+  }
+
+  document.getElementById('btnVolverCarga').addEventListener('click', function () {
+    cargaCancelada = true;
+    ocultarCarga();
+    restaurarBotones();
+  });
+
+  function restaurarBotones() {
+    var b1 = document.getElementById('btnEntrar'); b1.disabled = false; b1.textContent = 'Entrar';
+    var b2 = document.getElementById('btnAbrir'); b2.disabled = false; b2.textContent = 'Ver informes';
   }
 
   var form = document.getElementById('formIngreso');
@@ -255,6 +353,8 @@
     err.textContent = '';
     btn.disabled = true;
     btn.textContent = 'Verificando…';
+    cargaCancelada = false;
+    mostrarCarga(null, 'Verificando clave');
     try {
       var datos = await ingresar(clave);
       if (document.getElementById('recordar').checked) {
@@ -262,6 +362,7 @@
       }
       abrir(datos);
     } catch (e) {
+      ocultarCarga();
       err.textContent = e.message;
       btn.disabled = false;
       btn.textContent = 'Entrar';
@@ -276,9 +377,13 @@
     err.textContent = '';
     btn.disabled = true;
     btn.textContent = 'Verificando…';
+    cargaCancelada = false;
+    // Acá ya se sabe la empresa: los logos alternan desde el primer momento.
+    mostrarCarga({ id: s.id, nombre: s.empresa }, 'Abriendo informes de ' + s.empresa);
     try {
       abrir(await ingresar(s.clave));
     } catch (e) {
+      ocultarCarga();
       // Si la clave dejó de valer (cambiaron el PIN), se vuelve a pedir.
       if (/^Clave incorrecta\.$/.test(e.message)) {
         borrarSesion();
@@ -301,9 +406,8 @@
 
   // Al volver con "atrás" desde los informes: sacar la pantalla de carga y restaurar botones.
   window.addEventListener('pageshow', function () {
-    document.getElementById('carga').hidden = true;
-    var b1 = document.getElementById('btnEntrar'); b1.disabled = false; b1.textContent = 'Entrar';
-    var b2 = document.getElementById('btnAbrir'); b2.disabled = false; b2.textContent = 'Ver informes';
+    ocultarCarga();
+    restaurarBotones();
   });
 
   var sesion = leerSesion();
