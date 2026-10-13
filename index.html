@@ -82,9 +82,25 @@
   .error { color: var(--error); font-size: .9rem; min-height: 1.3em; margin: 10px 0 0; text-align: center; }
   .empresa-logo { display: flex; justify-content: center; margin: 4px 0 18px; }
   .empresa-logo img { max-height: 72px; max-width: 100%; }
-  .instalar { margin-top: 16px; text-align: center; }
-  .instalar button { background: transparent; color: var(--marca); border: 1px solid var(--borde); }
-  .ayuda-ios { font-size: .875rem; color: var(--suave); text-align: center; margin-top: 12px; }
+  /* Recuadro para instalar la app (se oculta si ya está instalada) */
+  .instalar {
+    margin-top: 16px; display: flex; align-items: center; gap: 12px;
+    background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 16px; padding: 12px 14px;
+  }
+  .instalar img { flex: none; width: 44px; height: 44px; border-radius: 10px; }
+  .instalar .txt { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: .875rem; color: var(--suave); }
+  .instalar .txt strong { color: var(--texto); font-size: .95rem; }
+  .instalar button { flex: none; width: auto; padding: 10px 16px; }
+  /* Huella */
+  .con-icono { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .oferta {
+    margin-top: 12px; padding: 12px; border-radius: 12px;
+    background: var(--fondo); border: 1px dashed var(--borde);
+    display: grid; gap: 10px; font-size: .9rem; color: var(--suave);
+  }
+  .oferta p { margin: 0; }
+  .oferta strong { color: var(--texto); }
+  button.borde { background: transparent; color: var(--marca); border: 1px solid var(--marca); margin-top: 10px; }
   footer { color: var(--suave); font-size: .75rem; padding: 12px 16px max(16px, env(safe-area-inset-bottom)); }
   [hidden] { display: none !important; }
 
@@ -228,17 +244,27 @@
   <!-- Clave recordada: entrar con un toque -->
   <section id="recordada" class="tarjeta" hidden>
     <div class="empresa-logo"><img id="logoRecordada" alt=""></div>
+    <button id="btnHuella" type="button" class="con-icono" hidden>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 11v3a8 8 0 0 1-1.5 4.7"/><path d="M8.5 9.5A4 4 0 0 1 16 11v2a12 12 0 0 1-.7 4"/><path d="M5 12a7 7 0 0 1 12.7-4"/><path d="M19 11.5V13a16 16 0 0 1-.4 3.5"/><path d="M8 13a10 10 0 0 1-1.2 4.8"/></svg>
+      Entrar con huella
+    </button>
     <button id="btnAbrir" type="button">Ver informes</button>
+    <div id="ofertaHuella" class="oferta" hidden>
+      <p><strong>Entrá más rápido.</strong> Usá la huella o la cara del celular en lugar de escribir la clave.</p>
+      <button id="btnActivarHuella" type="button" class="borde">Activar huella</button>
+    </div>
     <button id="btnSalir" type="button" class="secundario">Salir / cambiar de empresa</button>
     <p id="error2" class="error" role="alert"></p>
   </section>
 
   <!-- Instalar en el celular -->
-  <div class="instalar">
-    <button id="btnInstalar" type="button" hidden>Instalar app en el celular</button>
-    <p id="ayudaIos" class="ayuda-ios" hidden>
-      Para instalarla: tocá <strong>Compartir</strong> y después <strong>Agregar a inicio</strong>.
-    </p>
+  <div class="instalar" id="instalar" hidden>
+    <img src="./icon-192.png" alt="">
+    <div class="txt">
+      <strong>Instalá la app</strong>
+      <span id="instalarAyuda">Queda en tu pantalla de inicio con el ícono de CIAF.</span>
+    </div>
+    <button id="btnInstalar" type="button" hidden>Instalar</button>
   </div>
 </main>
 
@@ -594,7 +620,111 @@
 
   function restaurarBotones() {
     var b1 = document.getElementById('btnEntrar'); b1.disabled = false; b1.textContent = 'Entrar';
-    var b2 = document.getElementById('btnAbrir'); b2.disabled = false; b2.textContent = 'Ver informes';
+    var s = leerSesion();
+    var b2 = document.getElementById('btnAbrir'); b2.disabled = false;
+    b2.textContent = s && s.huella ? 'Entrar con clave' : 'Ver informes';
+    document.getElementById('btnHuella').disabled = false;
+  }
+
+  // ---- Huella / cara (WebAuthn) ----
+  // La huella nunca sale del celular: el teléfono solo confirma que es la
+  // persona. Si el celular lo permite (extensión "prf"), la clave se guarda
+  // cifrada y solo se puede leer después de pasar la huella. Si no, la huella
+  // funciona como bloqueo de pantalla de la clave guardada.
+  var HUELLA_DISPONIBLE = false;
+  async function revisarHuella() {
+    try {
+      HUELLA_DISPONIBLE = !!(window.PublicKeyCredential && window.isSecureContext &&
+        PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable &&
+        await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
+    } catch (e) { HUELLA_DISPONIBLE = false; }
+  }
+  function aB64(buf) { var b = new Uint8Array(buf), t = ''; for (var i = 0; i < b.length; i++) t += String.fromCharCode(b[i]); return btoa(t); }
+  function deB64(t) { return Uint8Array.from(atob(t), function (c) { return c.charCodeAt(0); }); }
+  function azar(n) { return crypto.getRandomValues(new Uint8Array(n)); }
+
+  // Pide la huella para esta credencial; devuelve el secreto PRF (o null).
+  async function pedirHuella(h) {
+    var op = { publicKey: {
+      challenge: azar(32),
+      allowCredentials: [{ type: 'public-key', id: deB64(h.credId) }],
+      userVerification: 'required',
+      timeout: 60000
+    } };
+    if (h.prf) op.publicKey.extensions = { prf: { eval: { first: deB64(h.salt) } } };
+    var cred = await navigator.credentials.get(op);
+    var ext = cred && cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
+    return ext.prf && ext.prf.results && ext.prf.results.first ? ext.prf.results.first : null;
+  }
+  function llaveDe(secreto) { return crypto.subtle.importKey('raw', secreto, 'AES-GCM', false, ['encrypt', 'decrypt']); }
+
+  async function activarHuella(s) {
+    var salt = azar(32);
+    var cred = await navigator.credentials.create({ publicKey: {
+      challenge: azar(32),
+      rp: { name: 'Informes CIAF' },
+      user: { id: azar(16), name: s.empresa, displayName: 'Informes CIAF · ' + s.empresa },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
+      timeout: 60000,
+      extensions: { prf: { eval: { first: salt } } }
+    } });
+    var h = { credId: aB64(cred.rawId), salt: aB64(salt), prf: false };
+    var ext = cred.getClientExtensionResults ? cred.getClientExtensionResults() : {};
+    if (ext.prf && ext.prf.enabled) {
+      // Algunos celulares dan el secreto al crear; otros piden la huella una vez más.
+      var secreto = ext.prf.results && ext.prf.results.first;
+      if (!secreto) secreto = await pedirHuella({ credId: h.credId, salt: h.salt, prf: true });
+      if (secreto) {
+        var iv = azar(12);
+        var cifrado = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, await llaveDe(secreto), new TextEncoder().encode(s.clave));
+        h.prf = true; h.iv = aB64(iv); h.dato = aB64(cifrado);
+      }
+    }
+    var nueva = { empresa: s.empresa, id: s.id, huella: h };
+    if (!h.prf) nueva.clave = s.clave;
+    guardarSesion(nueva);
+    return nueva;
+  }
+
+  async function claveConHuella(s) {
+    var secreto = await pedirHuella(s.huella);
+    if (!s.huella.prf) return s.clave;
+    if (!secreto) throw new Error('No se pudo leer la clave guardada.');
+    var plano = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: deB64(s.huella.iv) }, await llaveDe(secreto), deB64(s.huella.dato));
+    return new TextDecoder().decode(plano);
+  }
+
+  // Entra con la clave de la sesión recordada (con o sin huella).
+  async function entrarRecordada(s, obtenerClave, boton) {
+    var err = document.getElementById('error2');
+    err.textContent = '';
+    boton.disabled = true;
+    cargaCancelada = false;
+    mostrarCarga({ id: s.id, nombre: s.empresa }, 'Abriendo informes de ' + s.empresa);
+    var clave;
+    try {
+      clave = await obtenerClave();
+    } catch (e) {
+      ocultarCarga();
+      restaurarBotones();
+      err.textContent = 'No se pudo verificar la huella. Probá de nuevo o entrá con la clave.';
+      return;
+    }
+    try {
+      abrir(await ingresar(clave));
+    } catch (e) {
+      ocultarCarga();
+      restaurarBotones();
+      // Si la clave dejó de valer (cambiaron el PIN), se vuelve a pedir.
+      if (/^Clave incorrecta\.$/.test(e.message)) {
+        borrarSesion();
+        mostrarIngreso();
+        document.getElementById('error').textContent = 'La clave guardada ya no es válida. Ingresala de nuevo.';
+      } else {
+        err.textContent = e.message;
+      }
+    }
   }
 
   var form = document.getElementById('formIngreso');
@@ -607,6 +737,12 @@
     var img = document.getElementById('logoRecordada');
     img.src = logoDe(s.id);
     img.alt = s.empresa;
+    var conHuella = !!s.huella;
+    document.getElementById('btnHuella').hidden = !conHuella;
+    var abrirBtn = document.getElementById('btnAbrir');
+    abrirBtn.textContent = conHuella ? 'Entrar con clave' : 'Ver informes';
+    abrirBtn.className = conHuella ? 'borde' : '';
+    document.getElementById('ofertaHuella').hidden = conHuella || !HUELLA_DISPONIBLE || !s.clave;
   }
   function mostrarIngreso() {
     seccionRecordada.hidden = true;
@@ -628,7 +764,14 @@
     try {
       var datos = await ingresar(clave);
       if (document.getElementById('recordar').checked) {
-        guardarSesion({ clave: clave, empresa: datos.empresa.nombre, id: datos.empresa.id });
+        // Si ya tenía la huella activada para esta empresa, se conserva.
+        var previa = leerSesion();
+        if (previa && previa.huella && previa.id === datos.empresa.id) {
+          if (!previa.huella.prf) previa.clave = clave;
+          guardarSesion(previa);
+        } else {
+          guardarSesion({ clave: clave, empresa: datos.empresa.nombre, id: datos.empresa.id });
+        }
       }
       abrir(datos);
     } catch (e) {
@@ -639,32 +782,41 @@
     }
   });
 
-  document.getElementById('btnAbrir').addEventListener('click', async function () {
+  document.getElementById('btnAbrir').addEventListener('click', function () {
     var s = leerSesion();
-    var btn = this;
-    var err = document.getElementById('error2');
     if (!s) return mostrarIngreso();
-    err.textContent = '';
-    btn.disabled = true;
-    btn.textContent = 'Verificando…';
-    cargaCancelada = false;
-    // Acá ya se sabe la empresa: los logos alternan desde el primer momento.
-    mostrarCarga({ id: s.id, nombre: s.empresa }, 'Abriendo informes de ' + s.empresa);
-    try {
-      abrir(await ingresar(s.clave));
-    } catch (e) {
-      ocultarCarga();
-      // Si la clave dejó de valer (cambiaron el PIN), se vuelve a pedir.
-      if (/^Clave incorrecta\.$/.test(e.message)) {
-        borrarSesion();
-        mostrarIngreso();
-        document.getElementById('error').textContent = 'La clave guardada ya no es válida. Ingresala de nuevo.';
-      } else {
-        err.textContent = e.message;
-      }
-      btn.disabled = false;
-      btn.textContent = 'Ver informes';
+    if (s.huella) {
+      // Con la huella activada, este botón es "Entrar con clave": la pide.
+      mostrarIngreso();
+      document.getElementById('clave').focus();
+      return;
     }
+    entrarRecordada(s, function () { return Promise.resolve(s.clave); }, this);
+  });
+
+  document.getElementById('btnHuella').addEventListener('click', function () {
+    var s = leerSesion();
+    if (!s || !s.huella) return mostrarIngreso();
+    entrarRecordada(s, function () { return claveConHuella(s); }, this);
+  });
+
+  document.getElementById('btnActivarHuella').addEventListener('click', async function () {
+    var s = leerSesion();
+    var err = document.getElementById('error2');
+    if (!s || !s.clave) return;
+    err.textContent = '';
+    this.disabled = true;
+    try {
+      // Antes de guardar, se confirma que la clave sigue siendo válida.
+      await ingresar(s.clave);
+      mostrarRecordada(await activarHuella(s));
+      document.getElementById('subtitulo').textContent = s.empresa + ' · huella activada';
+    } catch (e) {
+      err.textContent = e && e.name === 'NotAllowedError'
+        ? 'Se canceló la huella. Podés activarla cuando quieras.'
+        : 'No se pudo activar la huella en este celular.';
+    }
+    this.disabled = false;
   });
 
   document.getElementById('btnSalir').addEventListener('click', function () {
@@ -681,17 +833,28 @@
   });
 
   var sesion = leerSesion();
-  if (sesion && sesion.clave) mostrarRecordada(sesion); else mostrarIngreso();
+  if (sesion && (sesion.clave || sesion.huella)) mostrarRecordada(sesion); else mostrarIngreso();
+  // Cuando se sabe si el celular tiene huella, se muestra (o no) la oferta.
+  revisarHuella().then(function () {
+    var s = leerSesion();
+    if (s && (s.clave || s.huella) && !seccionRecordada.hidden) mostrarRecordada(s);
+  });
 
   // ---- Instalar como app ----
   var yaInstalada = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   var esIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
   var pedidoInstalar = null;
   if (!yaInstalada) {
-    if (esIos) document.getElementById('ayudaIos').hidden = false;
+    // El recuadro se ve siempre que no esté instalada: con botón si el
+    // navegador lo permite, si no con los pasos para cada celular.
+    document.getElementById('instalar').hidden = false;
+    document.getElementById('instalarAyuda').innerHTML = esIos
+      ? 'Tocá <strong>Compartir</strong> y después <strong>Agregar a inicio</strong>.'
+      : 'Abrí el menú <strong>⋮</strong> del navegador y tocá <strong>Instalar app</strong>.';
     window.addEventListener('beforeinstallprompt', function (e) {
       e.preventDefault();
       pedidoInstalar = e;
+      document.getElementById('instalarAyuda').textContent = 'Queda en tu pantalla de inicio con el ícono de CIAF.';
       document.getElementById('btnInstalar').hidden = false;
     });
   }
@@ -703,7 +866,7 @@
     this.hidden = true;
   });
   window.addEventListener('appinstalled', function () {
-    document.getElementById('btnInstalar').hidden = true;
+    document.getElementById('instalar').hidden = true;
   });
 
   if ('serviceWorker' in navigator) {
