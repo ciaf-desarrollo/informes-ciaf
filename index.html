@@ -88,6 +88,38 @@
   footer { color: var(--suave); font-size: .75rem; padding: 12px 16px max(16px, env(safe-area-inset-bottom)); }
   [hidden] { display: none !important; }
 
+  /* Visor: los informes se muestran dentro de la app (nunca se abre
+     script.google.com en el celular). Barra fija arriba + informe abajo. */
+  #visor {
+    position: fixed; inset: 0; z-index: 5;
+    display: flex; flex-direction: column;
+    background: #ffffff;
+  }
+  .barra {
+    flex: none;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--ciaf); color: #fff;
+    padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+    min-height: 56px;
+  }
+  .barra button {
+    width: auto; flex: none;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 12px; border-radius: 999px;
+    background: rgba(255, 255, 255, .14); color: #fff; font-weight: 600; font-size: .95rem;
+  }
+  .barra button:active { background: rgba(255, 255, 255, .26); }
+  .barra .titulo {
+    flex: 1; min-width: 0;
+    font-weight: 600; font-size: 1rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .barra .logo-emp {
+    flex: none; height: 32px; max-width: 96px; object-fit: contain;
+    background: #fff; border-radius: 8px; padding: 3px 6px;
+  }
+  #visorFrame { flex: 1; width: 100%; border: 0; display: block; background: #fff; }
+
   /* Pantalla de carga: una tarjeta que gira como una moneda, con CIAF de un
      lado y la empresa del otro. Mientras se verifica la clave muestra CIAF en
      las dos caras; cuando ya se sabe la empresa, alterna CIAF ↔ empresa. */
@@ -212,6 +244,17 @@
 
 <footer>CIAF Consultora Integral</footer>
 
+<!-- Visor de informes -->
+<section id="visor" hidden>
+  <div class="barra">
+    <button id="visorVolver" type="button" aria-label="Volver">← Volver</button>
+    <div class="titulo" id="visorTitulo">Informes</div>
+    <img class="logo-emp" id="visorLogo" alt="">
+  </div>
+  <iframe id="visorFrame" title="Informe"
+    sandbox="allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads allow-top-navigation-to-custom-protocols"></iframe>
+</section>
+
 <div id="carga" hidden>
   <div class="escena" aria-hidden="true">
     <div class="moneda" id="moneda">
@@ -242,23 +285,31 @@
   // solo para la app (acceso "Cualquier usuario"); la de siempre no se toca.
   // La clave de cada una es el PIN_CORRECTO de su script; acá no se guarda ninguna.
   // Para sumar una empresa: agregar una línea y su logo en logo-<id>.webp.
+  // "clavesPin": dónde guardan el PIN los informes de esa empresa; la app les
+  // deja ahí el pase para que no lo pidan.
   var EMPRESAS = [
-    { id: 'santaclara', nombre: 'Santa Clara', url: 'https://script.google.com/macros/s/AKfycbzIFI7EtfJvzA7hGePOPyGqEzCc0goSDEpWFWnAL0A44AnUGG50-Ib8TGxzpU3at2OH/exec' },
-    { id: 'puntoi', nombre: 'Punto i', url: 'https://script.google.com/macros/s/AKfycbxkunOYALynjKJi-QOYPC2zKH-WMS6thJRniP10szwyP0AvN9OXZvAdJ7OnQB5SE9hy/exec' },
-    { id: 'ansilta', nombre: 'Ansilta', url: 'https://script.google.com/macros/s/AKfycbyCnon_IC8QM3eT1bbiScaszlqGwbzTlsO16XAl6V_9sJAD93i3wrxAdaiyA_kNWVabjA/exec' }
+    { id: 'santaclara', nombre: 'Santa Clara', clavesPin: ['sc_pin_santaclara'], url: 'https://script.google.com/macros/s/AKfycbxLX6UiowvzZR_oKT91_QH4vLDdWCeJPkf9m_53NhYixbCWy6xsIr-tfYA2_XFzjtCh/exec' },
+    { id: 'puntoi', nombre: 'Punto i', clavesPin: ['pi_pin_puntoi', 'ansilta_pin'], url: 'https://script.google.com/macros/s/AKfycbxbdbdT-PGq4lfvA_fUxQfusg0uhTkqn4GaPWTHXB2riBhfGTM3ETn6_F3GeDh_ETR9/exec' },
+    { id: 'ansilta', nombre: 'Ansilta', clavesPin: ['ansilta_pin'], url: 'https://script.google.com/macros/s/AKfycbyKN3u_-wDKAstu1vUcIi1f0GXvYEVUTOF9hFvrPPXJfKeVW3EitVhYWoxbb3kYOamP3A/exec' }
   ];
 
+  // Todo lo que la app le pide a un script va por acá (POST "por detrás"). Así
+  // el celular nunca abre script.google.com y no importa cuántas cuentas de
+  // Google tenga iniciadas.
+  async function pedirAlScript(emp, cuerpo) {
+    var r = await fetch(emp.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(cuerpo)
+    });
+    return JSON.parse(await r.text());
+  }
+
   // Le pregunta la clave a cada script (en paralelo). El que la acepta devuelve
-  // un pase temporal (6 h) y con ese pase se abre su web sin volver a pedir PIN.
-  // La clave nunca viaja en el link: solo el pase.
+  // un pase temporal (6 h). La clave nunca viaja en un link: solo el pase.
   async function pedirAcceso(emp, clave) {
     try {
-      var r = await fetch(emp.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ accion: 'acceso', clave: clave })
-      });
-      var d = JSON.parse(await r.text());
+      var d = await pedirAlScript(emp, { accion: 'acceso', clave: clave });
       return d && d.ok && typeof d.acceso === 'string' ? { acceso: d.acceso } : {};
     } catch (e) {
       return { error: true };
@@ -271,7 +322,7 @@
       if (resp[i].acceso) {
         var emp = EMPRESAS[i];
         return {
-          empresa: { id: emp.id, nombre: emp.nombre },
+          empresa: emp, acceso: resp[i].acceso, clave: clave,
           url: emp.url + '?acceso=' + encodeURIComponent(resp[i].acceso)
         };
       }
@@ -309,16 +360,235 @@
     document.getElementById('carga').hidden = true;
   }
 
-  // Abre la web de la empresa, dejando ver un giro completo de los logos.
+  // ---- Visor de informes ----
+  // ACTIVA: la empresa abierta, su pase y la clave (en memoria, para renovar
+  // el pase solo cuando vence). PILA: pantallas abiertas, para Volver.
+  var ACTIVA = null;
+  var PILA = [];
+  var PASE_DURA_MS = 5.5 * 60 * 60 * 1000; // el script lo da por 6 h
+  var pedidoVista = 0;
+
+  // Abre los informes de la empresa dentro de la app.
   function abrir(datos) {
     if (cargaCancelada) return;
-    mostrarCarga(datos.empresa, 'Abriendo informes de ' + datos.empresa.nombre);
-    temporizadorAbrir = setTimeout(function () { location.href = datos.url; }, 1600);
+    ACTIVA = { emp: datos.empresa, acceso: datos.acceso, clave: datos.clave, desde: Date.now() };
+    PILA = [];
+    document.getElementById('visorLogo').src = logoDe(datos.empresa.id);
+    document.getElementById('visorLogo').alt = datos.empresa.nombre;
+    cargarVista('inicio', '', true);
   }
 
+  async function renovarPase() {
+    var r = await pedirAcceso(ACTIVA.emp, ACTIVA.clave);
+    if (!r.acceso) throw new Error(r.error ? 'No se pudo conectar. Revisá la conexión.' : 'La clave ya no es válida.');
+    ACTIVA.acceso = r.acceso;
+    ACTIVA.desde = Date.now();
+  }
+
+  // Pide algo al script con el pase; si venció, lo renueva una vez y reintenta.
+  async function pedirConPase(cuerpo) {
+    if (Date.now() - ACTIVA.desde > PASE_DURA_MS) await renovarPase();
+    cuerpo.acceso = ACTIVA.acceso;
+    var d = await pedirAlScript(ACTIVA.emp, cuerpo);
+    if (!d.ok && d.error === 'PASE_VENCIDO') {
+      await renovarPase();
+      cuerpo.acceso = ACTIVA.acceso;
+      d = await pedirAlScript(ACTIVA.emp, cuerpo);
+    }
+    return d;
+  }
+
+  // Preferencias que los informes guardan en el navegador: quedan en la app,
+  // separadas por empresa. El PIN no se guarda: lo reemplaza el pase.
+  function prefijoDatos() { return 'emp_' + ACTIVA.emp.id + '_'; }
+  function datosGuardados() {
+    var out = {};
+    try {
+      var p = prefijoDatos();
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(p) === 0) out[k.slice(p.length)] = localStorage.getItem(k);
+      }
+    } catch (e) {}
+    ACTIVA.emp.clavesPin.forEach(function (k) { out[k] = ACTIVA.acceso; });
+    return out;
+  }
+
+  // Va al principio de cada pantalla del informe. google.script.run solo existe
+  // en script.google.com: acá cada llamada se le pasa a la app, que se la pide
+  // al script (y el script solo acepta las de su lista). También le da un
+  // localStorage propio y le pasa a la app los links a otros informes.
+  function puenteInforme(guardado) {
+    var datos = guardado || {};
+    var memoria = {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(datos, k) ? datos[k] : null; },
+      setItem: function (k, v) { datos[k] = String(v); parent.postMessage({ tipo: 'ciaf-guardar', clave: k, valor: String(v) }, '*'); },
+      removeItem: function (k) { delete datos[k]; parent.postMessage({ tipo: 'ciaf-guardar', clave: k, valor: null }, '*'); },
+      clear: function () { Object.keys(datos).forEach(memoria.removeItem); },
+      key: function (i) { return Object.keys(datos)[i] || null; }
+    };
+    Object.defineProperty(memoria, 'length', { get: function () { return Object.keys(datos).length; } });
+    try { Object.defineProperty(window, 'localStorage', { value: memoria, configurable: true }); } catch (e) {}
+
+    var pendientes = {};
+    var siguiente = 0;
+    function corredor(exito, fallo, objeto) {
+      return new Proxy({}, {
+        get: function (_, nombre) {
+          if (nombre === 'withSuccessHandler') return function (f) { return corredor(f, fallo, objeto); };
+          if (nombre === 'withFailureHandler') return function (f) { return corredor(exito, f, objeto); };
+          if (nombre === 'withUserObject') return function (o) { return corredor(exito, fallo, o); };
+          if (typeof nombre !== 'string' || nombre === 'then') return undefined;
+          return function () {
+            var id = ++siguiente;
+            pendientes[id] = { exito: exito, fallo: fallo, objeto: objeto };
+            parent.postMessage({ tipo: 'ciaf-run', id: id, fn: nombre, args: Array.prototype.slice.call(arguments) }, '*');
+          };
+        }
+      });
+    }
+    window.addEventListener('message', function (ev) {
+      var d = ev.data;
+      if (ev.source !== parent || !d || d.tipo !== 'ciaf-respuesta' || !pendientes[d.id]) return;
+      var p = pendientes[d.id];
+      delete pendientes[d.id];
+      if (d.ok) { if (p.exito) p.exito(d.resultado, p.objeto); }
+      else if (p.fallo) { p.fallo(new Error(d.error), p.objeto); }
+      else { console.error(d.error); }
+    });
+    window.google = {
+      script: {
+        run: corredor(null, null, undefined),
+        host: { close: function () {}, setHeight: function () {}, setWidth: function () {}, editor: { focus: function () {} }, origin: 'https://script.google.com' },
+        url: { getLocation: function (cb) { cb({ hash: location.hash.slice(1), parameter: {}, parameters: {} }); } },
+        history: { push: function () {}, replace: function () {}, setChangeHandler: function () {} }
+      }
+    };
+    // Avisa a la app apenas la pantalla está lista (sin esperar tipografías).
+    document.addEventListener('DOMContentLoaded', function () { parent.postMessage({ tipo: 'ciaf-listo' }, '*'); });
+    // Links a otro informe del mismo script (Inicio, Caja, Cheques…): los abre la app.
+    document.addEventListener('click', function (ev) {
+      var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(href)) {
+        ev.preventDefault();
+        parent.postMessage({ tipo: 'ciaf-navegar', url: href }, '*');
+      }
+    }, true);
+  }
+
+  function prepararHtml(html) {
+    var guardado = JSON.stringify(datosGuardados()).replace(/</g, '\\u003c');
+    var puente = '<script>(' + puenteInforme.toString() + ')(' + guardado + ');<\/script>';
+    var i = html.search(/<head[^>]*>/i);
+    if (i >= 0) {
+      var fin = html.indexOf('>', i) + 1;
+      return html.slice(0, fin) + puente + html.slice(fin);
+    }
+    return puente + html;
+  }
+
+  // Carga una pantalla del script (vista) dentro del visor.
+  async function cargarVista(vista, hash, apilar) {
+    var n = ++pedidoVista;
+    mostrarCarga(ACTIVA.emp, vista === 'inicio' ? 'Abriendo informes de ' + ACTIVA.emp.nombre : 'Abriendo informe');
+    try {
+      var d = await pedirConPase({ accion: 'pagina', vista: vista });
+      if (n !== pedidoVista) return;
+      if (!d.ok) throw new Error(d.error || 'No se pudo abrir el informe.');
+      if (apilar) {
+        PILA.push({ vista: vista, hash: hash });
+        history.pushState({ ciaf: PILA.length }, '');
+      }
+      document.getElementById('visorTitulo').textContent = vista === 'inicio' ? ACTIVA.emp.nombre : (d.titulo || 'Informe');
+      // Marco nuevo en cada pantalla: si se reusara, cada cambio quedaría en el
+      // historial del navegador y "atrás" no volvería a la pantalla anterior.
+      var marco = nuevoMarco();
+      marco.onload = function () { setTimeout(ocultarCarga, 250); };
+      marco.srcdoc = prepararHtml(d.html);
+      document.getElementById('visor').hidden = false;
+    } catch (e) {
+      if (n !== pedidoVista) return;
+      ocultarCarga();
+      if (!PILA.length) {
+        cerrarVisor();
+        document.getElementById(form.hidden ? 'error2' : 'error').textContent = e.message;
+      } else {
+        alert(e.message);
+      }
+    }
+  }
+
+  function nuevoMarco() {
+    var viejo = document.getElementById('visorFrame');
+    var marco = document.createElement('iframe');
+    marco.id = 'visorFrame';
+    marco.title = 'Informe';
+    marco.setAttribute('sandbox', viejo.getAttribute('sandbox'));
+    viejo.replaceWith(marco);
+    return marco;
+  }
+
+  function cerrarVisor() {
+    pedidoVista++;
+    PILA = [];
+    document.getElementById('visor').hidden = true;
+    nuevoMarco();
+    restaurarBotones();
+  }
+
+  // Mensajes que manda el informe desde adentro del visor.
+  window.addEventListener('message', async function (ev) {
+    var marco = document.getElementById('visorFrame');
+    var d = ev.data;
+    if (!ACTIVA || ev.source !== marco.contentWindow || !d || typeof d.tipo !== 'string') return;
+    if (d.tipo === 'ciaf-run') {
+      var resp;
+      try {
+        var r = await pedirConPase({ accion: 'run', fn: String(d.fn), args: Array.isArray(d.args) ? d.args : [] });
+        resp = r.ok ? { ok: true, resultado: r.resultado } : { ok: false, error: r.error || 'Error' };
+      } catch (e) {
+        resp = { ok: false, error: e.message || 'No se pudo conectar.' };
+      }
+      resp.tipo = 'ciaf-respuesta';
+      resp.id = d.id;
+      ev.source.postMessage(resp, '*');
+    } else if (d.tipo === 'ciaf-listo') {
+      setTimeout(ocultarCarga, 150);
+    } else if (d.tipo === 'ciaf-navegar') {
+      var u;
+      try { u = new URL(d.url); } catch (e) { return; }
+      cargarVista(u.searchParams.get('vista') || 'inicio', u.hash.slice(1), true);
+    } else if (d.tipo === 'ciaf-guardar') {
+      if (ACTIVA.emp.clavesPin.indexOf(d.clave) >= 0) return;
+      try {
+        if (d.valor === null) localStorage.removeItem(prefijoDatos() + d.clave);
+        else localStorage.setItem(prefijoDatos() + d.clave, String(d.valor));
+      } catch (e) {}
+    }
+  });
+
+  // Volver: pantalla anterior; desde el menú de la empresa, a la pantalla de
+  // ingreso. El botón de la barra lo hace directo; el "atrás" del celular
+  // también (cada pantalla deja una marca en el historial para eso).
+  function irAtras() {
+    if (document.getElementById('visor').hidden) return;
+    PILA.pop();
+    var anterior = PILA[PILA.length - 1];
+    if (anterior) cargarVista(anterior.vista, anterior.hash, false);
+    else cerrarVisor();
+  }
+  window.addEventListener('popstate', irAtras);
+  document.getElementById('visorVolver').addEventListener('click', irAtras);
+
+  // Volver en la pantalla de carga: cancela el ingreso o la pantalla que se
+  // estaba abriendo (queda la anterior).
   document.getElementById('btnVolverCarga').addEventListener('click', function () {
-    cargaCancelada = true;
+    cargaCancelada = true; // por si todavía se estaba verificando la clave
+    pedidoVista++;         // por si se estaba abriendo una pantalla
     ocultarCarga();
+    if (!PILA.length) cerrarVisor();
     restaurarBotones();
   });
 
