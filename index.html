@@ -323,7 +323,10 @@
     // "externos": informes que en la web de siempre abren otro sitio; en la app
     // se abren adentro, con la vista del script que los reemplaza.
     { id: 'puntoi', nombre: 'Punto i', clavesPin: ['pi_pin_puntoi', 'ansilta_pin'], externos: { 'flujodefondospuntoi.netlify.app': 'dashboard' }, url: 'https://script.google.com/macros/s/AKfycbxbdbdT-PGq4lfvA_fUxQfusg0uhTkqn4GaPWTHXB2riBhfGTM3ETn6_F3GeDh_ETR9/exec' },
-    { id: 'ansilta', nombre: 'Ansilta', clavesPin: ['ansilta_pin'], url: 'https://script.google.com/macros/s/AKfycbyKN3u_-wDKAstu1vUcIi1f0GXvYEVUTOF9hFvrPPXJfKeVW3EitVhYWoxbb3kYOamP3A/exec' }
+    { id: 'ansilta', nombre: 'Ansilta', clavesPin: ['ansilta_pin'], externos: {
+        'jose-prividera.github.io/Chequesansilta/Ansilta.html': 'cheques#pagar',
+        'jose-prividera.github.io/Chequestercerosansilta/Ansilta%20cheques%20terceros.html': 'cheques#cobrar'
+      }, url: 'https://script.google.com/macros/s/AKfycbyKN3u_-wDKAstu1vUcIi1f0GXvYEVUTOF9hFvrPPXJfKeVW3EitVhYWoxbb3kYOamP3A/exec' }
   ];
 
   // Todo lo que la app le pide a un script va por acá (POST "por detrás"). Así
@@ -459,7 +462,8 @@
   // en script.google.com: acá cada llamada se le pasa a la app, que se la pide
   // al script (y el script solo acepta las de su lista). También le da un
   // localStorage propio y le pasa a la app los links a otros informes.
-  function puenteInforme(guardado, externosEmpresa, pase) {
+  function puenteInforme(guardado, externosEmpresa, pase, hash) {
+    window.CIAF_HASH = hash || '';
     var datos = guardado || {};
     // Cualquier dato con "pin" en el nombre es el PIN interno de un informe:
     // en la app siempre vale el pase, así ninguna pantalla lo pide.
@@ -662,19 +666,23 @@
         return;
       }
       // Informe que en la web de siempre abre otro sitio: la app lo abre adentro.
-      var host = '';
-      try { host = new URL(href, 'https://x.invalid/').hostname; } catch (e) {}
-      if (host && Object.prototype.hasOwnProperty.call(externos, host)) {
+      var host = '', ruta = '';
+      try { var u = new URL(href, 'https://x.invalid/'); host = u.hostname; ruta = u.pathname; } catch (e) {}
+      var destino = null;
+      if (host && Object.prototype.hasOwnProperty.call(externos, host + ruta)) destino = externos[host + ruta];
+      else if (host && Object.prototype.hasOwnProperty.call(externos, host)) destino = externos[host];
+      if (destino) {
         ev.preventDefault();
-        parent.postMessage({ tipo: 'ciaf-navegar', url: 'https://script.google.com/macros/s/app/exec?vista=' + encodeURIComponent(externos[host]) }, '*');
+        var partes = String(destino).split('#');
+        parent.postMessage({ tipo: 'ciaf-navegar', url: 'https://script.google.com/macros/s/app/exec?vista=' + encodeURIComponent(partes[0]) + (partes[1] ? '#' + partes[1] : '') }, '*');
       }
     }, true);
   }
 
-  function prepararHtml(html) {
+  function prepararHtml(html, hash) {
     var guardado = JSON.stringify(datosGuardados()).replace(/</g, '\\u003c');
     var externos = JSON.stringify(ACTIVA.emp.externos || {}).replace(/</g, '\\u003c');
-    var puente = '<script>(' + puenteInforme.toString() + ')(' + guardado + ', ' + externos + ', ' + JSON.stringify(ACTIVA.acceso) + ');<\/script>';
+    var puente = '<script>(' + puenteInforme.toString() + ')(' + guardado + ', ' + externos + ', ' + JSON.stringify(ACTIVA.acceso) + ', ' + JSON.stringify(hash || '') + ');<\/script>';
     var i = html.search(/<head[^>]*>/i);
     if (i >= 0) {
       var fin = html.indexOf('>', i) + 1;
@@ -701,7 +709,7 @@
       // historial del navegador y "atrás" no volvería a la pantalla anterior.
       var marco = nuevoMarco();
       marco.onload = function () { setTimeout(ocultarCarga, 250); };
-      marco.srcdoc = prepararHtml(d.html);
+      marco.srcdoc = prepararHtml(d.html, hash);
       document.getElementById('visor').hidden = false;
     } catch (e) {
       if (n !== pedidoVista) return;
