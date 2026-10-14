@@ -1,6 +1,6 @@
 // Service worker mínimo: guarda la pantalla de ingreso para que la app abra
 // rápido y sea instalable. Solo guarda archivos de este sitio (nunca las respuestas de los scripts).
-const CACHE = 'informes-v13';
+const CACHE = 'informes-v14';
 const ARCHIVOS = ['./', 'manifest.webmanifest', 'icon-192.png', 'logo-ciaf.webp', 'logo-santaclara.webp', 'logo-puntoi.webp', 'logo-ansilta.webp'];
 
 self.addEventListener('install', (e) => {
@@ -10,7 +10,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((ks) => Promise.all(ks.filter((k) => k !== CACHE && k.indexOf('ciaf-') !== 0).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

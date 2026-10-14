@@ -409,6 +409,7 @@
     if (cargaCancelada) return;
     ACTIVA = { emp: datos.empresa, acceso: datos.acceso, clave: datos.clave, desde: Date.now() };
     ACTIVA.logo = logoComoDato(datos.empresa.id);
+    DATOS_GUARDADOS = {};
     PILA = [];
     document.getElementById('visorLogo').src = logoDe(datos.empresa.id);
     document.getElementById('visorLogo').alt = datos.empresa.nombre;
@@ -547,6 +548,15 @@
         '.ciaf-desliza>table{margin:0}' +
         // Restos de unos pocos px (sombras, adornos) que harían mover la página de costado.
         '@media (max-width:760px){html{overflow-x:hidden}' +
+        // Grillas de paneles pensadas para escritorio: un panel debajo del otro.
+        '.grid2,.grid3,.flujo-grid{grid-template-columns:minmax(0,1fr)!important}' +
+        '.kpi-strip{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))!important}' +
+        '.tot-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))!important}' +
+        '.wrap{padding-left:12px!important;padding-right:12px!important}' +
+        '.content-wrap{padding:14px 12px!important}' +
+        'header{flex-wrap:wrap;gap:10px}' +
+        '.header-right{align-items:flex-start!important;text-align:left!important}' +
+        '.s-name,.s-amt,.cmp-in,.cmp-out,.cmp-net,.cmp-acum,.ch-detail-date{min-width:0!important}' +
         // Encabezados "logos + título" de los informes: el título baja a su propio renglón.
         '.brand{flex-wrap:wrap;row-gap:8px}' +
         '.brand>div:last-child:not([style*="width:1px"]){flex:1 1 100%;min-width:0}' +
@@ -558,7 +568,9 @@
     function seDesliza(el) {
       for (var n = el.parentElement; n && n !== document.body; n = n.parentElement) {
         var ox = getComputedStyle(n).overflowX;
-        if (ox === 'auto' || ox === 'scroll' || ox === 'hidden') return true;
+        // Solo cuenta un recuadro que se desliza: uno que corta (hidden) esconde
+        // lo que no entra, y eso también hay que acomodarlo.
+        if (ox === 'auto' || ox === 'scroll') return true;
       }
       return false;
     }
@@ -639,6 +651,26 @@
             }
           }
         }
+        // 4) Paneles que cortan su contenido (overflow:hidden) dentro de una
+        //    grilla de varias columnas: la grilla pasa a una columna.
+        var grillas = document.body.querySelectorAll('*');
+        for (var g = 0; g < grillas.length; g++) {
+          var gr = grillas[g];
+          if (gr.dataset.ciafUnaColumna) continue;
+          var gs = getComputedStyle(gr);
+          if (gs.display.indexOf('grid') < 0 || gs.gridTemplateColumns.split(' ').length < 2) continue;
+          var cortado = false;
+          for (var c2 = 0; c2 < gr.children.length && !cortado; c2++) {
+            var hj = gr.children[c2];
+            var hs = getComputedStyle(hj);
+            if ((hs.overflowX === 'hidden' || hs.overflow === 'hidden') && hj.scrollWidth > hj.clientWidth + 4) cortado = true;
+          }
+          if (cortado) {
+            gr.style.gridTemplateColumns = 'minmax(0,1fr)';
+            gr.dataset.ciafUnaColumna = '1';
+            cambio = true;
+          }
+        }
         if (!cambio) break;
       }
     }
@@ -691,15 +723,68 @@
     return puente + html;
   }
 
+  // ---- Pantallas guardadas en el celular ----
+  // Cada pantalla de informe (el HTML, no los datos) se guarda la primera vez.
+  // Las siguientes abre al instante y, por detrás, se baja la versión nueva
+  // para la próxima vez. Al entrar a una empresa se bajan todas por detrás.
+  var CACHE_PANTALLAS = 'ciaf-pantallas-v1';
+  function urlPantalla(vista) { return location.origin + '/__pantalla/' + encodeURIComponent(ACTIVA.emp.id) + '/' + encodeURIComponent(vista); }
+  async function pantallaGuardada(vista) {
+    try {
+      var c = await caches.open(CACHE_PANTALLAS);
+      var r = await c.match(urlPantalla(vista));
+      return r ? await r.json() : null;
+    } catch (e) { return null; }
+  }
+  async function guardarPantalla(vista, d) {
+    try {
+      var c = await caches.open(CACHE_PANTALLAS);
+      await c.put(urlPantalla(vista), new Response(JSON.stringify({ ok: true, html: d.html, titulo: d.titulo }), { headers: { 'Content-Type': 'application/json' } }));
+    } catch (e) {}
+  }
+  async function bajarPantalla(vista) {
+    var d = await pedirConPase({ accion: 'pagina', vista: vista });
+    if (d && d.ok) await guardarPantalla(vista, d);
+    return d;
+  }
+  // Las vistas que aparecen en el menú (y las que reemplazan sitios externos).
+  function vistasDelMenu(html) {
+    var vistas = {};
+    var re = /[?&](?:amp;)?vista=([A-Za-z0-9_]+)/g, m;
+    while ((m = re.exec(html))) vistas[m[1]] = true;
+    var ext = ACTIVA.emp.externos || {};
+    Object.keys(ext).forEach(function (k) { vistas[String(ext[k]).split('#')[0]] = true; });
+    delete vistas.inicio;
+    return Object.keys(vistas);
+  }
+  var precargaEmpresa = null;
+  async function precargarPantallas(html) {
+    if (precargaEmpresa === ACTIVA.emp.id) return;
+    precargaEmpresa = ACTIVA.emp.id;
+    var emp = ACTIVA.emp.id;
+    var lista = vistasDelMenu(html);
+    for (var i = 0; i < lista.length; i++) {
+      if (!ACTIVA || ACTIVA.emp.id !== emp) return;
+      try { await bajarPantalla(lista[i]); } catch (e) {}
+    }
+  }
+
   // Carga una pantalla del script (vista) dentro del visor.
   async function cargarVista(vista, hash, apilar) {
     var n = ++pedidoVista;
-    mostrarCarga(ACTIVA.emp, vista === 'inicio' ? 'Abriendo informes de ' + ACTIVA.emp.nombre : 'Abriendo informe');
+    var d = await pantallaGuardada(vista);
+    if (d) {
+      // Guardada: abre ya; por detrás se trae la versión nueva para la próxima.
+      bajarPantalla(vista).catch(function () {});
+    } else {
+      mostrarCarga(ACTIVA.emp, vista === 'inicio' ? 'Abriendo informes de ' + ACTIVA.emp.nombre : 'Abriendo informe');
+    }
     try {
-      var d = await pedirConPase({ accion: 'pagina', vista: vista });
+      if (!d) d = await bajarPantalla(vista);
       if (ACTIVA.logo && !ACTIVA.logoDato) { try { ACTIVA.logoDato = await ACTIVA.logo; } catch (e) {} }
       if (n !== pedidoVista) return;
       if (!d.ok) throw new Error(d.error || 'No se pudo abrir el informe.');
+      if (vista === 'inicio') setTimeout(function () { precargarPantallas(d.html); }, 1500);
       if (apilar) {
         PILA.push({ vista: vista, hash: hash });
         history.pushState({ ciaf: PILA.length }, '');
@@ -741,6 +826,11 @@
     restaurarBotones();
   }
 
+  // Datos que ya trajo un informe: si se vuelve a pedir lo mismo dentro de 3
+  // minutos, se reusa (solo lecturas: listar/obtener/verificar).
+  var DATOS_GUARDADOS = {};
+  var DATOS_DURAN_MS = 3 * 60 * 1000;
+
   // Mensajes que manda el informe desde adentro del visor.
   window.addEventListener('message', async function (ev) {
     var marco = document.getElementById('visorFrame');
@@ -748,11 +838,22 @@
     if (!ACTIVA || ev.source !== marco.contentWindow || !d || typeof d.tipo !== 'string') return;
     if (d.tipo === 'ciaf-run') {
       var resp;
-      try {
-        var r = await pedirConPase({ accion: 'run', fn: String(d.fn), args: Array.isArray(d.args) ? d.args : [] });
-        resp = r.ok ? { ok: true, resultado: r.resultado } : { ok: false, error: r.error || 'Error' };
-      } catch (e) {
-        resp = { ok: false, error: e.message || 'No se pudo conectar.' };
+      var fn = String(d.fn), args = Array.isArray(d.args) ? d.args : [];
+      var esLectura = /^(listar|obtener|verificar)/.test(fn);
+      var claveDatos = ACTIVA.emp.id + '|' + fn + '|' + JSON.stringify(args.map(function (a) { return a === ACTIVA.acceso || (typeof a === 'string' && a.length === 36 && /^[0-9a-f-]+$/.test(a)) ? '' : a; }));
+      var guardado = esLectura ? DATOS_GUARDADOS[claveDatos] : null;
+      if (guardado && Date.now() - guardado.t < DATOS_DURAN_MS) {
+        resp = { ok: true, resultado: guardado.resultado };
+      } else {
+        try {
+          var r = await pedirConPase({ accion: 'run', fn: fn, args: args });
+          resp = r.ok ? { ok: true, resultado: r.resultado } : { ok: false, error: r.error || 'Error' };
+          if (r.ok && esLectura) DATOS_GUARDADOS[claveDatos] = { t: Date.now(), resultado: r.resultado };
+          // Algo que modifica datos (registrar, eliminar, asignar): lo guardado ya no vale.
+          if (r.ok && !esLectura) DATOS_GUARDADOS = {};
+        } catch (e) {
+          resp = { ok: false, error: e.message || 'No se pudo conectar.' };
+        }
       }
       resp.tipo = 'ciaf-respuesta';
       resp.id = d.id;
