@@ -550,12 +550,12 @@
         '@media (max-width:760px){html{overflow-x:hidden}' +
         // Grillas de paneles pensadas para escritorio: un panel debajo del otro.
         '.grid2,.grid3,.flujo-grid{grid-template-columns:minmax(0,1fr)!important}' +
-        '.kpi-strip{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))!important}' +
-        '.tot-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))!important}' +
-        '.wrap{padding-left:12px!important;padding-right:12px!important}' +
-        '.content-wrap{padding:14px 12px!important}' +
-        'header{flex-wrap:wrap;gap:10px}' +
-        '.header-right{align-items:flex-start!important;text-align:left!important}' +
+        // Lo que sigue es solo para informes viejos (no los del diseño estándar).
+        'html:not([data-ciaf-estandar]) .kpi-strip{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))!important}' +
+        'html:not([data-ciaf-estandar]) .wrap{padding-left:12px!important;padding-right:12px!important}' +
+        'html:not([data-ciaf-estandar]) .content-wrap{padding:14px 12px!important}' +
+        'html:not([data-ciaf-estandar]) header{flex-wrap:wrap;gap:10px}' +
+        'html:not([data-ciaf-estandar]) .header-right{align-items:flex-start!important;text-align:left!important}' +
         '.s-name,.s-amt,.cmp-in,.cmp-out,.cmp-net,.cmp-acum,.ch-detail-date{min-width:0!important}' +
         // Encabezados "logos + título" de los informes: el título baja a su propio renglón.
         '.brand{flex-wrap:wrap;row-gap:8px}' +
@@ -577,6 +577,9 @@
     function ajustarCelular() {
       var W = document.documentElement.clientWidth;
       if (!W || W > 760 || !document.body) return;
+      // Pantallas hechas con el diseño estándar CIAF ya vienen pensadas para
+      // celular: no se tocan.
+      if (document.documentElement.hasAttribute('data-ciaf-estandar')) return;
       for (var pasada = 0; pasada < 3; pasada++) {
         var cambio = false;
         // 1) Tablas más anchas que la pantalla: dentro de un recuadro que se desliza.
