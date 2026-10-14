@@ -306,6 +306,11 @@
     try { localStorage.removeItem(LS_KEY); } catch (e) {}
   }
   function logoDe(id) { return './logo-' + encodeURIComponent(id) + '.webp'; }
+  function logoComoDato(id) {
+    return fetch(logoDe(id)).then(function (r) { return r.blob(); }).then(function (b) {
+      return new Promise(function (ok, mal) { var fr = new FileReader(); fr.onload = function () { ok(fr.result); }; fr.onerror = mal; fr.readAsDataURL(b); });
+    });
+  }
 
   // Empresas: cada "url" es una implementación del Apps Script de esa empresa hecha
   // solo para la app (acceso "Cualquier usuario"); la de siempre no se toca.
@@ -400,6 +405,7 @@
   function abrir(datos) {
     if (cargaCancelada) return;
     ACTIVA = { emp: datos.empresa, acceso: datos.acceso, clave: datos.clave, desde: Date.now() };
+    ACTIVA.logo = logoComoDato(datos.empresa.id);
     PILA = [];
     document.getElementById('visorLogo').src = logoDe(datos.empresa.id);
     document.getElementById('visorLogo').alt = datos.empresa.nombre;
@@ -439,6 +445,13 @@
       }
     } catch (e) {}
     ACTIVA.emp.clavesPin.forEach(function (k) { out[k] = ACTIVA.acceso; });
+    // Informes con "logo de la empresa" guardado en el navegador (Estados): si
+    // no tienen uno, se les da el de la empresa. Si alguien cargó otro, se respeta.
+    if (ACTIVA.logoDato) {
+      var marca = {};
+      try { marca = JSON.parse(out['dashboard-brand-v1'] || '{}') || {}; } catch (e) { marca = {}; }
+      if (!marca.logo) { marca.logo = ACTIVA.logoDato; out['dashboard-brand-v1'] = JSON.stringify(marca); }
+    }
     return out;
   }
 
@@ -574,10 +587,24 @@
           if (seDesliza(el)) continue;
           var cs = getComputedStyle(el);
           if (cs.position === 'fixed' || cs.position === 'absolute') continue;
+          // Si lo que se sale es una tarjeta dentro de una grilla o fila que sí
+          // entra, lo que hay que cambiar es el contenedor.
+          var ps = padre && padre !== document.body ? getComputedStyle(padre) : null;
+          if (ps && ps.display.indexOf('grid') >= 0 && !padre.dataset.ciafGrilla) {
+            padre.style.gridTemplateColumns = 'repeat(auto-fit,minmax(min(100%,140px),1fr))';
+            padre.dataset.ciafGrilla = '1';
+            cambio = true;
+            continue;
+          }
+          if (ps && ps.display.indexOf('flex') >= 0 && ps.flexWrap === 'nowrap' && ps.flexDirection.indexOf('row') === 0) {
+            padre.style.flexWrap = 'wrap';
+            cambio = true;
+            continue;
+          }
           if (cs.display.indexOf('flex') >= 0 && cs.flexWrap === 'nowrap' && cs.flexDirection.indexOf('row') === 0) {
             el.style.flexWrap = 'wrap';
           } else if (cs.display.indexOf('grid') >= 0) {
-            el.style.gridTemplateColumns = 'minmax(0,1fr)';
+            el.style.gridTemplateColumns = 'repeat(auto-fit,minmax(min(100%,140px),1fr))';
           } else {
             el.style.maxWidth = '100%';
             el.style.minWidth = '0';
@@ -662,6 +689,7 @@
     mostrarCarga(ACTIVA.emp, vista === 'inicio' ? 'Abriendo informes de ' + ACTIVA.emp.nombre : 'Abriendo informe');
     try {
       var d = await pedirConPase({ accion: 'pagina', vista: vista });
+      if (ACTIVA.logo && !ACTIVA.logoDato) { try { ACTIVA.logoDato = await ACTIVA.logo; } catch (e) {} }
       if (n !== pedidoVista) return;
       if (!d.ok) throw new Error(d.error || 'No se pudo abrir el informe.');
       if (apilar) {
