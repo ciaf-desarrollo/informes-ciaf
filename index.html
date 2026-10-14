@@ -446,12 +446,29 @@
   // en script.google.com: acá cada llamada se le pasa a la app, que se la pide
   // al script (y el script solo acepta las de su lista). También le da un
   // localStorage propio y le pasa a la app los links a otros informes.
-  function puenteInforme(guardado, externosEmpresa) {
+  function puenteInforme(guardado, externosEmpresa, pase) {
     var datos = guardado || {};
+    // Cualquier dato con "pin" en el nombre es el PIN interno de un informe:
+    // en la app siempre vale el pase, así ninguna pantalla lo pide.
+    var esPin = function (k) { return /(^|[_-])pin([_-]|$)/i.test(String(k)); };
+    // Los cuadros de PIN de los informes no se muestran nunca en la app: se
+    // entra solo con la clave de ingreso.
+    try {
+      var estilo = document.createElement('style');
+      estilo.textContent = '#pinOverlay,#deudaPinOverlay,#concPinOverlay,[id$="PinOverlay"]{display:none!important}';
+      (document.head || document.documentElement).appendChild(estilo);
+    } catch (e) {}
     var externos = externosEmpresa || {};
     var memoria = {
-      getItem: function (k) { return Object.prototype.hasOwnProperty.call(datos, k) ? datos[k] : null; },
-      setItem: function (k, v) { datos[k] = String(v); parent.postMessage({ tipo: 'ciaf-guardar', clave: k, valor: String(v) }, '*'); },
+      getItem: function (k) {
+        if (esPin(k) && pase) return pase;
+        return Object.prototype.hasOwnProperty.call(datos, k) ? datos[k] : null;
+      },
+      setItem: function (k, v) {
+        if (esPin(k)) return; // el PIN no se guarda: lo reemplaza el pase
+        datos[k] = String(v);
+        parent.postMessage({ tipo: 'ciaf-guardar', clave: k, valor: String(v) }, '*');
+      },
       removeItem: function (k) { delete datos[k]; parent.postMessage({ tipo: 'ciaf-guardar', clave: k, valor: null }, '*'); },
       clear: function () { Object.keys(datos).forEach(memoria.removeItem); },
       key: function (i) { return Object.keys(datos)[i] || null; }
@@ -481,6 +498,9 @@
       if (ev.source !== parent || !d || d.tipo !== 'ciaf-respuesta' || !pendientes[d.id]) return;
       var p = pendientes[d.id];
       delete pendientes[d.id];
+      // Si el script respondiera "PIN incorrecto", la app renueva el pase y
+      // vuelve a abrir la pantalla (en vez de que el informe pida el PIN).
+      if (!d.ok && /PIN incorrecto/i.test(String(d.error))) { parent.postMessage({ tipo: 'ciaf-pin' }, '*'); return; }
       if (d.ok) { if (p.exito) p.exito(d.resultado, p.objeto); }
       else if (p.fallo) { p.fallo(new Error(d.error), p.objeto); }
       else { console.error(d.error); }
@@ -518,7 +538,7 @@
   function prepararHtml(html) {
     var guardado = JSON.stringify(datosGuardados()).replace(/</g, '\\u003c');
     var externos = JSON.stringify(ACTIVA.emp.externos || {}).replace(/</g, '\\u003c');
-    var puente = '<script>(' + puenteInforme.toString() + ')(' + guardado + ', ' + externos + ');<\/script>';
+    var puente = '<script>(' + puenteInforme.toString() + ')(' + guardado + ', ' + externos + ', ' + JSON.stringify(ACTIVA.acceso) + ');<\/script>';
     var i = html.search(/<head[^>]*>/i);
     if (i >= 0) {
       var fin = html.indexOf('>', i) + 1;
@@ -592,6 +612,13 @@
       resp.tipo = 'ciaf-respuesta';
       resp.id = d.id;
       ev.source.postMessage(resp, '*');
+    } else if (d.tipo === 'ciaf-pin') {
+      // Una sola vez por pantalla: pase nuevo y se recarga la pantalla actual.
+      var actual = PILA[PILA.length - 1];
+      if (!actual || actual.reintentoPin) return;
+      actual.reintentoPin = true;
+      try { await renovarPase(); } catch (e) { return; }
+      cargarVista(actual.vista, actual.hash, false);
     } else if (d.tipo === 'ciaf-listo') {
       setTimeout(ocultarCarga, 150);
     } else if (d.tipo === 'ciaf-navegar') {
@@ -599,7 +626,7 @@
       try { u = new URL(d.url); } catch (e) { return; }
       cargarVista(u.searchParams.get('vista') || 'inicio', u.hash.slice(1), true);
     } else if (d.tipo === 'ciaf-guardar') {
-      if (ACTIVA.emp.clavesPin.indexOf(d.clave) >= 0) return;
+      if (ACTIVA.emp.clavesPin.indexOf(d.clave) >= 0 || /(^|[_-])pin([_-]|$)/i.test(String(d.clave))) return;
       try {
         if (d.valor === null) localStorage.removeItem(prefijoDatos() + d.clave);
         else localStorage.setItem(prefijoDatos() + d.clave, String(d.valor));
