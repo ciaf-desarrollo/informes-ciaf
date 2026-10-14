@@ -529,7 +529,13 @@
         '.ciaf-desliza{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}' +
         '.ciaf-desliza>table{margin:0}' +
         // Restos de unos pocos px (sombras, adornos) que harían mover la página de costado.
-        '@media (max-width:760px){html{overflow-x:hidden}}';
+        '@media (max-width:760px){html{overflow-x:hidden}' +
+        // Encabezados "logos + título" de los informes: el título baja a su propio renglón.
+        '.brand{flex-wrap:wrap;row-gap:8px}' +
+        '.brand>div:last-child:not([style*="width:1px"]){flex:1 1 100%;min-width:0}' +
+        '.topbar,.actions{flex-wrap:wrap}}' +
+        // Imagen todavía sin cargar (src vacío): no mostrar el ícono de imagen rota.
+        'img[src=""],img:not([src]){visibility:hidden}';
       (document.head || document.documentElement).appendChild(estiloCel);
     } catch (e) {}
     function seDesliza(el) {
@@ -613,6 +619,11 @@
     });
     window.addEventListener('load', pedirAjuste);
     window.addEventListener('resize', pedirAjuste);
+    // Tipografías y logos que terminan de cargar después cambian el tamaño de
+    // las cosas sin "cambiar" la página: se reajusta varias veces al principio.
+    var vecesAjuste = 0;
+    var relojAjuste = setInterval(function () { ajustarCelular(); if (++vecesAjuste >= 20) clearInterval(relojAjuste); }, 1000);
+    try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(pedirAjuste); } catch (e) {}
     // Links a otro informe del mismo script (Inicio, Caja, Cheques…): los abre la app.
     document.addEventListener('click', function (ev) {
       var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
@@ -833,7 +844,7 @@
   }
 
   // Entra con la clave de la sesión recordada (con o sin huella).
-  async function entrarRecordada(s, obtenerClave, boton) {
+  async function entrarRecordada(s, obtenerClave, boton, silencioso) {
     var err = document.getElementById('error2');
     err.textContent = '';
     boton.disabled = true;
@@ -845,7 +856,8 @@
     } catch (e) {
       ocultarCarga();
       restaurarBotones();
-      err.textContent = 'No se pudo verificar la huella. Probá de nuevo o entrá con la clave.';
+      // Si fue el intento automático al abrir la app, queda el botón para tocar.
+      if (!silencioso) err.textContent = 'No se pudo verificar la huella. Probá de nuevo o entrá con la clave.';
       return;
     }
     try {
@@ -907,7 +919,14 @@
           if (!previa.huella.prf) previa.clave = clave;
           guardarSesion(previa);
         } else {
-          guardarSesion({ clave: clave, empresa: datos.empresa.nombre, id: datos.empresa.id });
+          var nueva = { clave: clave, empresa: datos.empresa.nombre, id: datos.empresa.id };
+          guardarSesion(nueva);
+          // Sin preguntar: si el celular tiene huella, se activa ahora mismo
+          // para que la próxima vez se entre con el dedo. Si la cancela, entra igual.
+          if (HUELLA_DISPONIBLE) {
+            mostrarCarga(datos.empresa, 'Apoyá el dedo para entrar con huella la próxima vez');
+            try { await activarHuella(nueva); } catch (e) {}
+          }
         }
       }
       abrir(datos);
@@ -975,6 +994,10 @@
   revisarHuella().then(function () {
     var s = leerSesion();
     if (s && (s.clave || s.huella) && !seccionRecordada.hidden) mostrarRecordada(s);
+    // Con la huella activada, al abrir la app se pide directo, sin tocar nada.
+    if (s && s.huella && HUELLA_DISPONIBLE && !seccionRecordada.hidden) {
+      entrarRecordada(s, function () { return claveConHuella(s); }, document.getElementById('btnHuella'), true);
+    }
   });
 
   // ---- Instalar como app ----
