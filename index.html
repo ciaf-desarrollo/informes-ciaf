@@ -462,10 +462,11 @@
     var memoria = {
       getItem: function (k) {
         if (esPin(k) && pase) return pase;
+        if (k === 'desde_app_ciaf') return null; // la app ya tiene su botón Volver
         return Object.prototype.hasOwnProperty.call(datos, k) ? datos[k] : null;
       },
       setItem: function (k, v) {
-        if (esPin(k)) return; // el PIN no se guarda: lo reemplaza el pase
+        if (esPin(k) || k === 'desde_app_ciaf') return; // el PIN no se guarda: lo reemplaza el pase
         datos[k] = String(v);
         parent.postMessage({ tipo: 'ciaf-guardar', clave: k, valor: String(v) }, '*');
       },
@@ -515,6 +516,103 @@
     };
     // Avisa a la app apenas la pantalla está lista (sin esperar tipografías).
     document.addEventListener('DOMContentLoaded', function () { parent.postMessage({ tipo: 'ciaf-listo' }, '*'); });
+
+    // ---- Ajuste para celular ----
+    // Los informes se armaron para computadora. En pantallas angostas, lo que
+    // se sale del ancho se acomoda: filas que bajan de renglón, tablas que se
+    // deslizan de costado, grillas en una columna. Se vuelve a aplicar cada
+    // vez que el informe dibuja datos nuevos.
+    try {
+      var estiloCel = document.createElement('style');
+      estiloCel.textContent =
+        'img,video,canvas{max-width:100%}' +
+        '.ciaf-desliza{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}' +
+        '.ciaf-desliza>table{margin:0}' +
+        // Restos de unos pocos px (sombras, adornos) que harían mover la página de costado.
+        '@media (max-width:760px){html{overflow-x:hidden}}';
+      (document.head || document.documentElement).appendChild(estiloCel);
+    } catch (e) {}
+    function seDesliza(el) {
+      for (var n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+        var ox = getComputedStyle(n).overflowX;
+        if (ox === 'auto' || ox === 'scroll' || ox === 'hidden') return true;
+      }
+      return false;
+    }
+    function ajustarCelular() {
+      var W = document.documentElement.clientWidth;
+      if (!W || W > 760 || !document.body) return;
+      for (var pasada = 0; pasada < 3; pasada++) {
+        var cambio = false;
+        // 1) Tablas más anchas que la pantalla: dentro de un recuadro que se desliza.
+        var tablas = document.querySelectorAll('table');
+        for (var t = 0; t < tablas.length; t++) {
+          var tb = tablas[t];
+          if (tb.parentElement && tb.parentElement.classList.contains('ciaf-desliza')) continue;
+          if (tb.getBoundingClientRect().right <= W + 1 || seDesliza(tb)) continue;
+          var caja = document.createElement('div');
+          caja.className = 'ciaf-desliza';
+          tb.parentNode.insertBefore(caja, tb);
+          caja.appendChild(tb);
+          cambio = true;
+        }
+        // 2) Otros elementos que se salen (el de más afuera de cada rama).
+        var todos = document.body.querySelectorAll('*');
+        for (var i = 0; i < todos.length; i++) {
+          var el = todos[i];
+          if (el.tagName === 'TABLE' || el.closest('.ciaf-desliza') || el.closest('svg')) continue;
+          var r = el.getBoundingClientRect();
+          if (!r.width || r.right <= W + 1) continue;
+          var padre = el.parentElement;
+          if (padre && padre !== document.body && padre.getBoundingClientRect().right > W + 1) continue;
+          if (seDesliza(el)) continue;
+          var cs = getComputedStyle(el);
+          if (cs.position === 'fixed' || cs.position === 'absolute') continue;
+          if (cs.display.indexOf('flex') >= 0 && cs.flexWrap === 'nowrap' && cs.flexDirection.indexOf('row') === 0) {
+            el.style.flexWrap = 'wrap';
+          } else if (cs.display.indexOf('grid') >= 0) {
+            el.style.gridTemplateColumns = 'minmax(0,1fr)';
+          } else {
+            el.style.maxWidth = '100%';
+            el.style.minWidth = '0';
+            if (parseFloat(cs.width) > W) el.style.width = 'auto';
+          }
+          el.style.boxSizing = 'border-box';
+          cambio = true;
+        }
+        // 3) Textos largos aplastados al lado de otros (ej. título junto a los
+        //    logos): pasan a su propio renglón, con todo el ancho.
+        var filas = document.body.querySelectorAll('*');
+        for (var f = 0; f < filas.length; f++) {
+          var fila = filas[f];
+          if (fila.closest('.ciaf-desliza') || fila.closest('svg') || fila.closest('table')) continue;
+          var fs = getComputedStyle(fila);
+          if (fs.display.indexOf('flex') < 0 || fs.flexDirection.indexOf('row') !== 0) continue;
+          var hijos = fila.children;
+          if (hijos.length < 2) continue;
+          for (var h = 0; h < hijos.length; h++) {
+            var hijo = hijos[h];
+            var texto = (hijo.textContent || '').replace(/\s+/g, ' ').trim();
+            var hr = hijo.getBoundingClientRect();
+            if (texto.length >= 18 && hr.width > 0 && hr.width < 130 && hr.height > 70) {
+              fila.style.flexWrap = 'wrap';
+              hijo.style.flexBasis = '100%';
+              hijo.style.maxWidth = '100%';
+              cambio = true;
+            }
+          }
+        }
+        if (!cambio) break;
+      }
+    }
+    var esperaAjuste = null;
+    function pedirAjuste() { clearTimeout(esperaAjuste); esperaAjuste = setTimeout(ajustarCelular, 250); }
+    document.addEventListener('DOMContentLoaded', function () {
+      pedirAjuste();
+      try { new MutationObserver(pedirAjuste).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+    });
+    window.addEventListener('load', pedirAjuste);
+    window.addEventListener('resize', pedirAjuste);
     // Links a otro informe del mismo script (Inicio, Caja, Cheques…): los abre la app.
     document.addEventListener('click', function (ev) {
       var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
