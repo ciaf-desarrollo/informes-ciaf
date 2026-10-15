@@ -341,20 +341,36 @@
     { id: 'ansilta', nombre: 'Ansilta', clavesPin: ['ansilta_pin'], externos: {
         'jose-prividera.github.io/Chequesansilta/Ansilta.html': 'cheques#pagar',
         'jose-prividera.github.io/Chequestercerosansilta/Ansilta%20cheques%20terceros.html': 'cheques#cobrar'
-      }, url: 'https://script.google.com/macros/s/AKfycbyKN3u_-wDKAstu1vUcIi1f0GXvYEVUTOF9hFvrPPXJfKeVW3EitVhYWoxbb3kYOamP3A/exec' }
+      }, url: 'https://script.google.com/macros/s/AKfycbyCnon_IC8QM3eT1bbiScaszlqGwbzTlsO16XAl6V_9sJAD93i3wrxAdaiyA_kNWVabjA/exec' }
   ];
 
   // Todo lo que la app le pide a un script va por acá (POST "por detrás"). Así
   // el celular nunca abre script.google.com y no importa cuántas cuentas de
   // Google tenga iniciadas.
+  // A veces Google contesta con una página de error suya en vez de los datos
+  // (algo pasajero de sus servidores). Las lecturas se reintentan solas un par
+  // de veces; lo que registra o borra datos no, para no hacerlo dos veces.
   async function pedirAlScript(emp, cuerpo) {
-    var r = await fetch(emp.url, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(cuerpo)
-    });
-    return JSON.parse(await r.text());
+    var esLectura = cuerpo.accion !== 'run' || /^(listar|obtener|verificar)/.test(String(cuerpo.fn || ''));
+    var esperas = esLectura ? [800, 2000] : [];
+    for (var intento = 0; ; intento++) {
+      var texto = '';
+      try {
+        var r = await fetch(emp.url, {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(cuerpo)
+        });
+        texto = await r.text();
+        return JSON.parse(texto);
+      } catch (e) {
+        if (intento >= esperas.length) {
+          throw new Error(/^\s*</.test(texto) ? 'Google no respondió bien. Probá de nuevo en un momento.' : (e.message || 'No se pudo conectar.'));
+        }
+        await new Promise(function (ok) { setTimeout(ok, esperas[intento]); });
+      }
+    }
   }
 
   // Le pregunta la clave a cada script (en paralelo). El que la acepta devuelve
