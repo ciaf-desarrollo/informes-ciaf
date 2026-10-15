@@ -296,6 +296,20 @@
 <script>
   var LS_KEY = 'informes_sesion_v1';
 
+  // Pase vigente guardado (no la clave): permite entrar directo mientras dure.
+  var LS_PASE = 'informes_pase_v1';
+  function leerPase() {
+    try {
+      var p = JSON.parse(localStorage.getItem(LS_PASE) || 'null');
+      return p && typeof p.acceso === 'string' && Date.now() - p.desde < PASE_DURA_MS ? p : null;
+    } catch (e) { return null; }
+  }
+  function guardarPase() {
+    try { localStorage.setItem(LS_PASE, JSON.stringify({ id: ACTIVA.emp.id, acceso: ACTIVA.acceso, desde: ACTIVA.desde })); } catch (e) {}
+  }
+  function borrarPase() {
+    try { localStorage.removeItem(LS_PASE); } catch (e) {}
+  }
   function leerSesion() {
     try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { return null; }
   }
@@ -304,6 +318,7 @@
   }
   function borrarSesion() {
     try { localStorage.removeItem(LS_KEY); } catch (e) {}
+    borrarPase();
   }
   function logoDe(id) { return './logo-' + encodeURIComponent(id) + '.webp'; }
   function logoComoDato(id) {
@@ -335,6 +350,7 @@
   async function pedirAlScript(emp, cuerpo) {
     var r = await fetch(emp.url, {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(cuerpo)
     });
@@ -407,7 +423,9 @@
   // Abre los informes de la empresa dentro de la app.
   function abrir(datos) {
     if (cargaCancelada) return;
-    ACTIVA = { emp: datos.empresa, acceso: datos.acceso, clave: datos.clave, desde: Date.now() };
+    ACTIVA = { emp: datos.empresa, acceso: datos.acceso, clave: datos.clave, desde: datos.desde || Date.now() };
+    var recordada = leerSesion();
+    if (recordada && recordada.id === datos.empresa.id) guardarPase();
     ACTIVA.logo = logoComoDato(datos.empresa.id);
     DATOS_GUARDADOS = {};
     PILA = [];
@@ -417,10 +435,19 @@
   }
 
   async function renovarPase() {
+    if (!ACTIVA.clave) {
+      // Entró directo con el pase guardado: la clave sale de la huella.
+      var s = leerSesion();
+      if (s && s.clave) ACTIVA.clave = s.clave;
+      else if (s && s.huella) ACTIVA.clave = await claveConHuella(s);
+      else throw new Error('Volvé a entrar con tu clave.');
+    }
     var r = await pedirAcceso(ACTIVA.emp, ACTIVA.clave);
     if (!r.acceso) throw new Error(r.error ? 'No se pudo conectar. Revisá la conexión.' : 'La clave ya no es válida.');
     ACTIVA.acceso = r.acceso;
     ACTIVA.desde = Date.now();
+    var recordada = leerSesion();
+    if (recordada && recordada.id === ACTIVA.emp.id) guardarPase();
   }
 
   // Pide algo al script con el pase; si venció, lo renueva una vez y reintenta.
@@ -465,6 +492,15 @@
   // localStorage propio y le pasa a la app los links a otros informes.
   function puenteInforme(guardado, externosEmpresa, pase, hash) {
     window.CIAF_HASH = hash || '';
+    // Primer toque o tecla del usuario: la app ya no reemplaza esta pantalla
+    // por una versión más nueva (para no interrumpir lo que esté haciendo).
+    var avisarToque = function () {
+      document.removeEventListener('pointerdown', avisarToque, true);
+      document.removeEventListener('keydown', avisarToque, true);
+      parent.postMessage({ tipo: 'ciaf-toque' }, '*');
+    };
+    document.addEventListener('pointerdown', avisarToque, true);
+    document.addEventListener('keydown', avisarToque, true);
     var datos = guardado || {};
     // Cualquier dato con "pin" en el nombre es el PIN interno de un informe:
     // en la app siempre vale el pase, así ninguna pantalla lo pide.
@@ -777,8 +813,17 @@
     var n = ++pedidoVista;
     var d = await pantallaGuardada(vista);
     if (d) {
-      // Guardada: abre ya; por detrás se trae la versión nueva para la próxima.
-      bajarPantalla(vista).catch(function () {});
+      // Guardada: abre ya y por detrás se trae la versión actual del script.
+      // Si cambió (se publicó una versión nueva), se pasa a la nueva enseguida
+      // mientras la persona todavía no tocó nada; si ya la estaba usando,
+      // la nueva queda para la próxima vez que abra esta pantalla.
+      var mostrada = d;
+      bajarPantalla(vista).then(function (f) {
+        if (!f || !f.ok || f.html === mostrada.html) return;
+        if (n !== pedidoVista || MARCO.tocado) return;
+        document.getElementById('visorTitulo').textContent = vista === 'inicio' ? ACTIVA.emp.nombre : (f.titulo || 'Informe');
+        nuevoMarco().srcdoc = prepararHtml(f.html, hash);
+      }).catch(function () {});
     } else {
       mostrarCarga(ACTIVA.emp, vista === 'inicio' ? 'Abriendo informes de ' + ACTIVA.emp.nombre : 'Abriendo informe');
     }
@@ -811,7 +856,9 @@
     }
   }
 
+  var MARCO = { n: 0, tocado: false };
   function nuevoMarco() {
+    MARCO = { n: MARCO.n + 1, tocado: false };
     var viejo = document.getElementById('visorFrame');
     var marco = document.createElement('iframe');
     marco.id = 'visorFrame';
@@ -827,6 +874,7 @@
     document.getElementById('visor').hidden = true;
     nuevoMarco();
     restaurarBotones();
+    window.dispatchEvent(new Event('ciaf-visor-cerrado'));
   }
 
   // Datos que ya trajo un informe: si se vuelve a pedir lo mismo dentro de 3
@@ -845,13 +893,14 @@
       var esLectura = /^(listar|obtener|verificar)/.test(fn);
       var claveDatos = ACTIVA.emp.id + '|' + fn + '|' + JSON.stringify(args.map(function (a) { return a === ACTIVA.acceso || (typeof a === 'string' && a.length === 36 && /^[0-9a-f-]+$/.test(a)) ? '' : a; }));
       var guardado = esLectura ? DATOS_GUARDADOS[claveDatos] : null;
-      if (guardado && Date.now() - guardado.t < DATOS_DURAN_MS) {
+      if (guardado && guardado.marco !== MARCO.n && Date.now() - guardado.t < DATOS_DURAN_MS) {
+        guardado.marco = MARCO.n;
         resp = { ok: true, resultado: guardado.resultado };
       } else {
         try {
           var r = await pedirConPase({ accion: 'run', fn: fn, args: args });
           resp = r.ok ? { ok: true, resultado: r.resultado } : { ok: false, error: r.error || 'Error' };
-          if (r.ok && esLectura) DATOS_GUARDADOS[claveDatos] = { t: Date.now(), resultado: r.resultado };
+          if (r.ok && esLectura) DATOS_GUARDADOS[claveDatos] = { t: Date.now(), resultado: r.resultado, marco: MARCO.n };
           // Algo que modifica datos (registrar, eliminar, asignar): lo guardado ya no vale.
           if (r.ok && !esLectura) DATOS_GUARDADOS = {};
         } catch (e) {
@@ -868,6 +917,8 @@
       actual.reintentoPin = true;
       try { await renovarPase(); } catch (e) { return; }
       cargarVista(actual.vista, actual.hash, false);
+    } else if (d.tipo === 'ciaf-toque') {
+      MARCO.tocado = true;
     } else if (d.tipo === 'ciaf-listo') {
       setTimeout(ocultarCarga, 150);
     } else if (d.tipo === 'ciaf-navegar') {
@@ -1134,9 +1185,21 @@
   revisarHuella().then(function () {
     var s = leerSesion();
     if (s && (s.clave || s.huella) && !seccionRecordada.hidden) mostrarRecordada(s);
+    // Ya validado hace poco (pase vigente): entra directo, sin huella ni clave.
+    var pase = leerPase();
+    var empPase = pase && s && pase.id === s.id ? EMPRESAS.filter(function (e) { return e.id === pase.id; })[0] : null;
+    if (empPase && !seccionRecordada.hidden) {
+      cargaCancelada = false;
+      mostrarCarga(empPase, 'Abriendo informes de ' + empPase.nombre);
+      abrir({ empresa: empPase, acceso: pase.acceso, desde: pase.desde });
+      return;
+    }
     // Con la huella activada, al abrir la app se pide directo, sin tocar nada.
     if (s && s.huella && HUELLA_DISPONIBLE && !seccionRecordada.hidden) {
       entrarRecordada(s, function () { return claveConHuella(s); }, document.getElementById('btnHuella'), true);
+    } else if (s && s.clave && !s.huella && !seccionRecordada.hidden) {
+      // Celular sin huella, con la clave recordada: también entra solo.
+      entrarRecordada(s, function () { return Promise.resolve(s.clave); }, document.getElementById('btnAbrir'), true);
     }
   });
 
@@ -1169,8 +1232,30 @@
     document.getElementById('instalar').hidden = true;
   });
 
+  // Que el celular no borre lo guardado (sesión, huella) por falta de espacio.
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+  // Versión nueva de la app: se busca al abrir y cada vez que se vuelve a la
+  // app. Cuando llega, se recarga sola si la persona está en la pantalla de
+  // ingreso; si está mirando un informe, al volver a esa pantalla.
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(function () {});
+    var habiaControlador = !!navigator.serviceWorker.controller;
+    var appNueva = false;
+    var recargarSiSePuede = function () {
+      if (appNueva && document.getElementById('visor').hidden && document.getElementById('carga').hidden) location.reload();
+    };
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') reg.update().catch(function () {});
+      });
+    }).catch(function () {});
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!habiaControlador) { habiaControlador = true; return; }
+      appNueva = true;
+      recargarSiSePuede();
+    });
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') recargarSiSePuede(); });
+    window.addEventListener('ciaf-visor-cerrado', recargarSiSePuede);
   }
 </script>
 </body>
